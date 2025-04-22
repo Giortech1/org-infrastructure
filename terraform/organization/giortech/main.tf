@@ -6,7 +6,7 @@ terraform {
     }
   }
   backend "gcs" {
-    bucket = "academyaxis-terraform-state" # You'll need to create this bucket
+    bucket = "academyaxis-terraform-state" 
     prefix = "giortech"
   }
 }
@@ -128,3 +128,4 @@ output "service_url" {
 output "bucket_name" {
   value = google_storage_bucket.static_assets.name
 }
+
