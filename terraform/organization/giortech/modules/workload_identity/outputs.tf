@@ -17,3 +17,12 @@ output "service_account_email" {
   )
   description = "Service account email"
 }
+
+# Outputs
+#output "workload_identity_provider" {
+#  value = var.create_identity_pool ? "projects/${var.project_id}/locations/global/workloadIdentityPools/github-pool/providers/github-provider" : "Not created"
+#}
+
+#output "service_account_email" {
+#  value = var.create_service_account ? google_service_account.github_actions_sa[0].email : "Not created"
+#}
