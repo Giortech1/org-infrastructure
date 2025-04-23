@@ -69,15 +69,18 @@ jobs:
           echo "Using project ID: ${{ steps.vars.outputs.PROJECT_ID }}"
           echo "Using service account: ${{ steps.vars.outputs.SA_EMAIL }}"
       
-      # Authenticate BEFORE trying to run Terraform commands
+      # Authenticate to Google Cloud with explicit project ID
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
         with:
           workload_identity_provider: ${{ steps.vars.outputs.WI_PROVIDER }}
           service_account: ${{ steps.vars.outputs.SA_EMAIL }}
+          project_id: ${{ steps.vars.outputs.PROJECT_ID }}  # Add this line
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ steps.vars.outputs.PROJECT_ID }}  # Add this line
       
       # Setup Terraform after authenticating
       - name: Setup Terraform
@@ -88,7 +91,7 @@ jobs:
       - name: Set Terraform working directory
         id: tf-dir
         run: |
-          # Map environment input to directory name (in case develop branch maps to dev directory)
+          # Map environment input to directory name
           ENV_DIR="${{ github.event.inputs.environment }}"
           if [ "$ENV_DIR" = "develop" ]; then
             ENV_DIR="dev"
@@ -105,25 +108,20 @@ jobs:
           
           echo "tf_dir=terraform/organization/${{ github.event.inputs.application }}/$ENV_DIR" >> $GITHUB_OUTPUT
       
-      # Now with authentication and Terraform setup, we can run Terraform commands
+      # Initialize Terraform with GCP authentication
       - name: Run Terraform to get outputs
         id: tf-outputs
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
+          # Set gcloud project explicitly before running Terraform
+          gcloud config set project ${{ steps.vars.outputs.PROJECT_ID }}
+          
           # Initialize Terraform with GCP backend access
           terraform init
           
-          # Get the outputs
+          # Get the outputs (if needed)
           PROVIDER=$(terraform output -raw workload_identity_provider 2>/dev/null || echo "")
           SA_EMAIL=$(terraform output -raw service_account_email 2>/dev/null || echo "")
-          
-          # If we can't get the outputs, use the hardcoded values
-          if [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
-            echo "Warning: Could not get Workload Identity Provider or Service Account from Terraform outputs"
-            echo "Using values from previous step"
-            PROVIDER="${{ steps.vars.outputs.WI_PROVIDER }}"
-            SA_EMAIL="${{ steps.vars.outputs.SA_EMAIL }}"
-          fi
           
           echo "Got Workload Identity Provider: $PROVIDER"
           echo "Got Service Account: $SA_EMAIL"
