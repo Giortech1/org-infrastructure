@@ -58,8 +58,8 @@ jobs:
           
           echo "Using project ID: ${{ steps.vars.outputs.PROJECT_ID }}"
       
-      - name: Get Workload Identity configuration
-        id: identity
+      - name: Set Terraform working directory
+        id: tf-dir
         run: |
           # Map environment input to directory name (in case develop branch maps to dev directory)
           ENV_DIR="${{ github.event.inputs.environment }}"
@@ -76,9 +76,18 @@ jobs:
             exit 1
           fi
           
-          # Use Terraform to get the Workload Identity Provider and Service Account
-          cd terraform/organization/${{ github.event.inputs.application }}/$ENV_DIR
-          
+          echo "tf_dir=terraform/organization/${{ github.event.inputs.application }}/$ENV_DIR" >> $GITHUB_OUTPUT
+      
+      # Add this step to install Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0  # Specify your desired Terraform version
+      
+      - name: Get Workload Identity configuration
+        id: identity
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
           # Initialize Terraform
           terraform init
           
