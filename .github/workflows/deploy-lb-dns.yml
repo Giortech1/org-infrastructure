@@ -45,18 +45,45 @@ jobs:
           if [ "${{ github.event.inputs.application }}" = "giortech" ]; then
             if [ "${{ github.event.inputs.environment }}" = "prod" ]; then
               echo "PROJECT_ID=giortech-prod-project" >> $GITHUB_OUTPUT
+              echo "WI_PROVIDER=projects/371831144642/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
             elif [ "${{ github.event.inputs.environment }}" = "uat" ]; then
               echo "PROJECT_ID=giortech-uat-project" >> $GITHUB_OUTPUT
+              echo "WI_PROVIDER=projects/28962750525/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
             else
               echo "PROJECT_ID=giortech-dev-project" >> $GITHUB_OUTPUT
+              echo "WI_PROVIDER=projects/653675374627/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
             fi
           elif [ "${{ github.event.inputs.application }}" = "waspwallet" ]; then
             echo "PROJECT_ID=waspwallet-${{ github.event.inputs.environment }}-project" >> $GITHUB_OUTPUT
+            # Add workload identity provider for waspwallet when available
+            echo "WI_PROVIDER=projects/PLACEHOLDER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.application }}" = "academyaxis" ]; then
             echo "PROJECT_ID=academyaxis-${{ github.event.inputs.environment }}-project" >> $GITHUB_OUTPUT
+            # Add workload identity provider for academyaxis when available
+            echo "WI_PROVIDER=projects/PLACEHOLDER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
           fi
           
+          # Set service account email
+          echo "SA_EMAIL=github-actions-sa@${{ steps.vars.outputs.PROJECT_ID }}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          
           echo "Using project ID: ${{ steps.vars.outputs.PROJECT_ID }}"
+          echo "Using service account: ${{ steps.vars.outputs.SA_EMAIL }}"
+      
+      # Authenticate BEFORE trying to run Terraform commands
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          workload_identity_provider: ${{ steps.vars.outputs.WI_PROVIDER }}
+          service_account: ${{ steps.vars.outputs.SA_EMAIL }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+      
+      # Setup Terraform after authenticating
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
       
       - name: Set Terraform working directory
         id: tf-dir
@@ -78,41 +105,28 @@ jobs:
           
           echo "tf_dir=terraform/organization/${{ github.event.inputs.application }}/$ENV_DIR" >> $GITHUB_OUTPUT
       
-      # Add this step to install Terraform
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.5.0  # Specify your desired Terraform version
-      
-      - name: Get Workload Identity configuration
-        id: identity
+      # Now with authentication and Terraform setup, we can run Terraform commands
+      - name: Run Terraform to get outputs
+        id: tf-outputs
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
-          # Initialize Terraform
+          # Initialize Terraform with GCP backend access
           terraform init
           
           # Get the outputs
           PROVIDER=$(terraform output -raw workload_identity_provider 2>/dev/null || echo "")
           SA_EMAIL=$(terraform output -raw service_account_email 2>/dev/null || echo "")
           
+          # If we can't get the outputs, use the hardcoded values
           if [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
             echo "Warning: Could not get Workload Identity Provider or Service Account from Terraform outputs"
-            echo "Using fallback values based on project ID"
-            PROVIDER="projects/$(gcloud projects describe ${{ steps.vars.outputs.PROJECT_ID }} --format='value(projectNumber)')/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-            SA_EMAIL="github-actions-sa@${{ steps.vars.outputs.PROJECT_ID }}.iam.gserviceaccount.com"
+            echo "Using values from previous step"
+            PROVIDER="${{ steps.vars.outputs.WI_PROVIDER }}"
+            SA_EMAIL="${{ steps.vars.outputs.SA_EMAIL }}"
           fi
           
-          echo "WI_PROVIDER=$PROVIDER" >> $GITHUB_OUTPUT
-          echo "SA_EMAIL=$SA_EMAIL" >> $GITHUB_OUTPUT
-      
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v1
-        with:
-          workload_identity_provider: ${{ steps.identity.outputs.WI_PROVIDER }}
-          service_account: ${{ steps.identity.outputs.SA_EMAIL }}
-      
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
+          echo "Got Workload Identity Provider: $PROVIDER"
+          echo "Got Service Account: $SA_EMAIL"
       
       - name: Setup Load Balancer and DNS
         run: |
