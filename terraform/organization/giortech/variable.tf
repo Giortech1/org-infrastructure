@@ -47,3 +47,10 @@ variable "create_budget" {
   type        = bool
   default     = true
 }
+
+# New variable for container image
+variable "container_image" {
+  description = "The container image to use for Cloud Run"
+  type        = string
+  default     = "gcr.io/google-samples/hello-app:1.0" # Default to a working sample image
+}
