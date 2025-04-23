@@ -29,61 +29,53 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Set project ID based on environment and application
-        id: project
+      - name: Set project variables based on inputs
+        id: vars
         run: |
           if [ "${{ github.event.inputs.application }}" = "giortech" ]; then
             if [ "${{ github.event.inputs.environment }}" = "prod" ]; then
               echo "PROJECT_ID=giortech-prod-project" >> $GITHUB_OUTPUT
-              echo "SERVICE_ACCOUNT=github-actions-sa@giortech-prod-project.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
-              echo "WORKLOAD_IDENTITY_PROVIDER=projects/371831144642/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
             elif [ "${{ github.event.inputs.environment }}" = "uat" ]; then
               echo "PROJECT_ID=giortech-uat-project" >> $GITHUB_OUTPUT
-              echo "SERVICE_ACCOUNT=github-actions-sa@giortech-uat-project.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
-              echo "WORKLOAD_IDENTITY_PROVIDER=projects/28962750525/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
             else
               echo "PROJECT_ID=giortech-dev-project" >> $GITHUB_OUTPUT
-              echo "SERVICE_ACCOUNT=github-actions-sa@giortech-dev-project.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
-              echo "WORKLOAD_IDENTITY_PROVIDER=projects/421191438459/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
             fi
-          # Add other applications as needed
           elif [ "${{ github.event.inputs.application }}" = "waspwallet" ]; then
             echo "PROJECT_ID=waspwallet-${{ github.event.inputs.environment }}-project" >> $GITHUB_OUTPUT
-            echo "SERVICE_ACCOUNT=github-actions-sa@waspwallet-${{ github.event.inputs.environment }}-project.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
           elif [ "${{ github.event.inputs.application }}" = "academyaxis" ]; then
             echo "PROJECT_ID=academyaxis-${{ github.event.inputs.environment }}-project" >> $GITHUB_OUTPUT
-            echo "SERVICE_ACCOUNT=github-actions-sa@academyaxis-${{ github.event.inputs.environment }}-project.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
           fi
+
+      - name: Get Workload Identity configuration
+        id: identity
+        run: |
+          # Use Terraform to get the Workload Identity Provider and Service Account from the target environment
+          cd terraform/organization/giortech/${{ github.event.inputs.environment }}
+          
+          # Initialize Terraform
+          terraform init
+          
+          # Get the outputs
+          PROVIDER=$(terraform output -raw workload_identity_provider)
+          SA_EMAIL=$(terraform output -raw service_account_email)
+          
+          echo "WI_PROVIDER=$PROVIDER" >> $GITHUB_OUTPUT
+          echo "SA_EMAIL=$SA_EMAIL" >> $GITHUB_OUTPUT
       
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
         with:
-          workload_identity_provider: ${{ steps.project.outputs.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ steps.project.outputs.SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ steps.identity.outputs.WI_PROVIDER }}
+          service_account: ${{ steps.identity.outputs.SA_EMAIL }}
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
-      
-      - name: Grant additional IAM permissions if needed
-        run: |
-          echo "Adding required IAM roles..."
-          gcloud projects add-iam-policy-binding ${{ steps.project.outputs.PROJECT_ID }} \
-            --member="serviceAccount:${{ steps.project.outputs.SERVICE_ACCOUNT }}" \
-            --role="roles/compute.loadBalancerAdmin"
-          
-          gcloud projects add-iam-policy-binding ${{ steps.project.outputs.PROJECT_ID }} \
-            --member="serviceAccount:${{ steps.project.outputs.SERVICE_ACCOUNT }}" \
-            --role="roles/dns.admin"
-          
-          gcloud projects add-iam-policy-binding ${{ steps.project.outputs.PROJECT_ID }} \
-            --member="serviceAccount:${{ steps.project.outputs.SERVICE_ACCOUNT }}" \
-            --role="roles/certificatemanager.admin"
       
       - name: Setup Load Balancer and DNS
         run: |
           chmod +x scripts/setup-lb-dns.sh
           ./scripts/setup-lb-dns.sh \
-            ${{ steps.project.outputs.PROJECT_ID }} \
+            ${{ steps.vars.outputs.PROJECT_ID }} \
             ${{ github.event.inputs.application }} \
             ${{ github.event.inputs.environment }} \
             ${{ env.REGION }}

@@ -23,3 +23,27 @@ variable "budget_amount" {
   description = "Budget amount in USD for this environment"
   type        = number
 }
+
+variable "create_identity_pool" {
+  description = "Whether to create the workload identity pool"
+  type        = bool
+  default     = true
+}
+
+variable "create_service_account" {
+  description = "Whether to create the service account"
+  type        = bool
+  default     = true
+}
+
+variable "deploy_cloud_run" {
+  description = "Whether to deploy Cloud Run service"
+  type        = bool
+  default     = true
+}
+
+variable "create_budget" {
+  description = "Whether to create budget"
+  type        = bool
+  default     = true
+}
