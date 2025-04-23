@@ -1,0 +1,160 @@
+# File: .github/workflows/branch-deploy.yml
+name: Branch-Based Deployment
+
+on:
+  push:
+    branches:
+      - develop
+      - uat
+      - main
+
+env:
+  REGION: us-central1
+
+jobs:
+  determine-context:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      application: ${{ steps.set-app.outputs.application }}
+      project_id: ${{ steps.set-project.outputs.project_id }}
+    
+    steps:
+      - name: Set environment based on branch
+        id: set-env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/uat" ]]; then
+            echo "environment=uat" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "Branch ${{ github.ref }} maps to environment: ${{ steps.set-env.outputs.environment }}"
+      
+      - name: Set application based on repository
+        id: set-app
+        run: |
+          # Extract application name from repository name
+          # Expected format: owner/app-name or owner/app-name-suffix
+          REPO_NAME="${{ github.repository }}"
+          # First extract the repo part (after the /)
+          REPO_PART=$(echo $REPO_NAME | cut -d'/' -f2)
+          
+          # Then determine application by prefix
+          if [[ "$REPO_PART" == giortech* ]]; then
+            APP_NAME="giortech"
+          elif [[ "$REPO_PART" == waspwallet* ]]; then
+            APP_NAME="waspwallet"
+          elif [[ "$REPO_PART" == academyaxis* ]]; then
+            APP_NAME="academyaxis"
+          else
+            # Default to the repository name if no match
+            APP_NAME=$REPO_PART
+          fi
+          
+          echo "application=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "Repository $REPO_NAME maps to application: $APP_NAME"
+      
+      - name: Set project ID
+        id: set-project
+        run: |
+          # Combine application and environment to form project ID
+          APP="${{ steps.set-app.outputs.application }}"
+          ENV="${{ steps.set-env.outputs.environment }}"
+          
+          PROJECT_ID="${APP}-${ENV}-project"
+          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
+          echo "Using project ID: $PROJECT_ID"
+  
+  deploy-infrastructure:
+    needs: determine-context
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set Terraform working directory
+        id: tf-dir
+        run: |
+          # Map environment name to directory name
+          ENV_DIR="${{ needs.determine-context.outputs.environment }}"
+          if [ "$ENV_DIR" = "develop" ]; then
+            ENV_DIR="dev"
+          fi
+          
+          TF_DIR="terraform/organization/${{ needs.determine-context.outputs.application }}/$ENV_DIR"
+          echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
+          
+          # Check if directory exists
+          if [ ! -d "$TF_DIR" ]; then
+            echo "Error: Directory $TF_DIR does not exist"
+            ls -la terraform/organization/${{ needs.determine-context.outputs.application }}/
+            exit 1
+          fi
+          
+          echo "Using Terraform directory: $TF_DIR"
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Terraform Init
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: terraform init
+      
+      - name: Get Workload Identity Provider and Service Account
+        id: identity
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          # Get the outputs or use fallback values
+          PROVIDER=$(terraform output -raw workload_identity_provider 2>/dev/null || echo "")
+          SA_EMAIL=$(terraform output -raw service_account_email 2>/dev/null || echo "")
+          
+          if [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
+            echo "Warning: Could not get Workload Identity Provider or Service Account from Terraform outputs"
+            echo "Using fallback values based on project ID"
+            PROVIDER="projects/$(gcloud projects describe ${{ needs.determine-context.outputs.project_id }} --format='value(projectNumber)')/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+            SA_EMAIL="github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com"
+          fi
+          
+          echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
+          echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          workload_identity_provider: ${{ steps.identity.outputs.wi_provider }}
+          service_account: ${{ steps.identity.outputs.sa_email }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+      
+      - name: Run Infrastructure Deployment
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          # Apply Terraform changes
+          terraform apply -auto-approve
+      
+      - name: Setup Load Balancer and DNS
+        run: |
+          if [ ! -f "scripts/setup-lb-dns.sh" ]; then
+            echo "Error: scripts/setup-lb-dns.sh does not exist"
+            exit 1
+          fi
+          
+          chmod +x scripts/setup-lb-dns.sh
+          ./scripts/setup-lb-dns.sh \
+            ${{ needs.determine-context.outputs.project_id }} \
+            ${{ needs.determine-context.outputs.application }} \
+            ${{ needs.determine-context.outputs.environment }} \
+            ${{ env.REGION }}

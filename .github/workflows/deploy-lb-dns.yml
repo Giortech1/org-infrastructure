@@ -1,5 +1,4 @@
 # File: .github/workflows/deploy-lb-dns.yml
-
 name: Deploy Load Balancer and DNS
 
 on:
@@ -9,10 +8,20 @@ on:
         description: 'Environment to deploy (dev, uat, prod)'
         required: true
         default: 'prod'
+        type: choice
+        options:
+          - dev
+          - uat
+          - prod
       application:
         description: 'Application to configure (giortech, waspwallet, academyaxis)'
         required: true
         default: 'giortech'
+        type: choice
+        options:
+          - giortech
+          - waspwallet
+          - academyaxis
 
 env:
   REGION: us-central1
@@ -32,6 +41,7 @@ jobs:
       - name: Set project variables based on inputs
         id: vars
         run: |
+          # Set PROJECT_ID based on application and environment
           if [ "${{ github.event.inputs.application }}" = "giortech" ]; then
             if [ "${{ github.event.inputs.environment }}" = "prod" ]; then
               echo "PROJECT_ID=giortech-prod-project" >> $GITHUB_OUTPUT
@@ -45,19 +55,43 @@ jobs:
           elif [ "${{ github.event.inputs.application }}" = "academyaxis" ]; then
             echo "PROJECT_ID=academyaxis-${{ github.event.inputs.environment }}-project" >> $GITHUB_OUTPUT
           fi
-
+          
+          echo "Using project ID: ${{ steps.vars.outputs.PROJECT_ID }}"
+      
       - name: Get Workload Identity configuration
         id: identity
         run: |
-          # Use Terraform to get the Workload Identity Provider and Service Account from the target environment
-          cd terraform/organization/giortech/${{ github.event.inputs.environment }}
+          # Map environment input to directory name (in case develop branch maps to dev directory)
+          ENV_DIR="${{ github.event.inputs.environment }}"
+          if [ "$ENV_DIR" = "develop" ]; then
+            ENV_DIR="dev"
+          fi
+          
+          echo "Using Terraform environment directory: $ENV_DIR"
+          
+          # Check if directory exists
+          if [ ! -d "terraform/organization/${{ github.event.inputs.application }}/$ENV_DIR" ]; then
+            echo "Error: Directory terraform/organization/${{ github.event.inputs.application }}/$ENV_DIR does not exist"
+            ls -la terraform/organization/${{ github.event.inputs.application }}/
+            exit 1
+          fi
+          
+          # Use Terraform to get the Workload Identity Provider and Service Account
+          cd terraform/organization/${{ github.event.inputs.application }}/$ENV_DIR
           
           # Initialize Terraform
           terraform init
           
           # Get the outputs
-          PROVIDER=$(terraform output -raw workload_identity_provider)
-          SA_EMAIL=$(terraform output -raw service_account_email)
+          PROVIDER=$(terraform output -raw workload_identity_provider 2>/dev/null || echo "")
+          SA_EMAIL=$(terraform output -raw service_account_email 2>/dev/null || echo "")
+          
+          if [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
+            echo "Warning: Could not get Workload Identity Provider or Service Account from Terraform outputs"
+            echo "Using fallback values based on project ID"
+            PROVIDER="projects/$(gcloud projects describe ${{ steps.vars.outputs.PROJECT_ID }} --format='value(projectNumber)')/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+            SA_EMAIL="github-actions-sa@${{ steps.vars.outputs.PROJECT_ID }}.iam.gserviceaccount.com"
+          fi
           
           echo "WI_PROVIDER=$PROVIDER" >> $GITHUB_OUTPUT
           echo "SA_EMAIL=$SA_EMAIL" >> $GITHUB_OUTPUT
@@ -73,6 +107,11 @@ jobs:
       
       - name: Setup Load Balancer and DNS
         run: |
+          if [ ! -f "scripts/setup-lb-dns.sh" ]; then
+            echo "Error: scripts/setup-lb-dns.sh does not exist"
+            exit 1
+          fi
+          
           chmod +x scripts/setup-lb-dns.sh
           ./scripts/setup-lb-dns.sh \
             ${{ steps.vars.outputs.PROJECT_ID }} \
