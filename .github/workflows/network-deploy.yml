@@ -1,0 +1,235 @@
+# .github/workflows/network-deploy.yml
+name: Network Infrastructure Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy (dev, uat, prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - uat
+          - prod
+      application:
+        description: 'Application to configure (giortech, waspwallet, academyaxis)'
+        required: true
+        default: 'giortech'
+        type: choice
+        options:
+          - giortech
+          - waspwallet
+          - academyaxis
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+env:
+  REGION: us-central1
+
+jobs:
+  determine-context:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      application: ${{ steps.set-app.outputs.application }}
+      project_id: ${{ steps.set-project.outputs.project_id }}
+      service_name: ${{ steps.set-service.outputs.service_name }}
+    
+    steps:
+      - name: Set environment
+        id: set-env
+        run: |
+          echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+      
+      - name: Set application
+        id: set-app
+        run: |
+          echo "application=${{ github.event.inputs.application }}" >> $GITHUB_OUTPUT
+      
+      - name: Set project ID and service name
+        id: set-project
+        run: |
+          PROJECT_ID="${{ github.event.inputs.application }}-${{ github.event.inputs.environment }}-project"
+          SERVICE_NAME="${{ github.event.inputs.application }}-${{ github.event.inputs.environment }}"
+          
+          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
+          echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
+  
+  get-identity:
+    needs: determine-context
+    runs-on: ubuntu-latest
+    outputs:
+      wi_provider: ${{ steps.identity.outputs.wi_provider }}
+      sa_email: ${{ steps.identity.outputs.sa_email }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set Workload Identity Provider and Service Account
+        id: identity
+        run: |
+          # Set fallback values based on project ID
+          PROJECT_NUM=$(gcloud projects describe ${{ needs.determine-context.outputs.project_id }} --format='value(projectNumber)')
+          PROVIDER="projects/$PROJECT_NUM/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          SA_EMAIL="github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com"
+          
+          echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
+          echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
+  
+  deploy-network:
+    needs: [determine-context, get-identity]
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          workload_identity_provider: ${{ needs.get-identity.outputs.wi_provider }}
+          service_account: ${{ needs.get-identity.outputs.sa_email }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Set Terraform working directory
+        id: tf-dir
+        run: |
+          TF_DIR="terraform/network-infra/${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
+          echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
+          
+          # Create the directory if it doesn't exist
+          mkdir -p $TF_DIR
+      
+      - name: Create Terraform main.tf file
+        run: |
+          cat > ${{ steps.tf-dir.outputs.tf_dir }}/main.tf << EOF
+          terraform {
+            required_providers {
+              google = {
+                source  = "hashicorp/google"
+                version = "~> 4.0"
+              }
+            }
+            backend "gcs" {
+              bucket = "academyaxis-terraform-state"
+              prefix = "${{ needs.determine-context.outputs.application }}/network/${{ needs.determine-context.outputs.environment }}"
+            }
+          }
+          
+          provider "google" {
+            project = var.project_id
+            region  = var.region
+          }
+          
+          module "network_infrastructure" {
+            source = "../../../modules/network_infrastructure"
+            
+            project_id            = var.project_id
+            region                = var.region
+            environment           = var.environment
+            application           = var.application
+            domain                = "academyaxis.io"
+            enable_cdn            = var.environment == "prod" ? true : false
+            enable_cloud_armor    = var.environment == "prod" ? true : false
+            cloud_run_service_name = "${{ needs.determine-context.outputs.service_name }}"
+            enable_monitoring     = true
+          }
+          
+          output "load_balancer_ip" {
+            value = module.network_infrastructure.load_balancer_ip
+          }
+          
+          output "domain_name" {
+            value = module.network_infrastructure.domain_name
+          }
+          
+          output "name_servers" {
+            value = module.network_infrastructure.name_servers
+          }
+          EOF
+      
+      - name: Create Terraform variables.tf file
+        run: |
+          cat > ${{ steps.tf-dir.outputs.tf_dir }}/variables.tf << EOF
+          variable "project_id" {
+            description = "The GCP project ID"
+            type        = string
+            default     = "${{ needs.determine-context.outputs.project_id }}"
+          }
+          
+          variable "region" {
+            description = "The GCP region"
+            type        = string
+            default     = "${{ env.REGION }}"
+          }
+          
+          variable "environment" {
+            description = "The environment (dev, uat, prod)"
+            type        = string
+            default     = "${{ needs.determine-context.outputs.environment }}"
+          }
+          
+          variable "application" {
+            description = "The application name"
+            type        = string
+            default     = "${{ needs.determine-context.outputs.application }}"
+          }
+          EOF
+      
+      - name: Terraform Init
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: terraform init
+      
+      - name: Terraform Validate
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: terraform validate
+      
+      - name: Terraform Plan
+        if: github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: terraform plan -out=tfplan
+      
+      - name: Terraform Apply
+        if: github.event.inputs.action == 'apply'
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: terraform apply -auto-approve tfplan
+      
+      - name: Terraform Destroy Plan
+        if: github.event.inputs.action == 'destroy'
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: terraform plan -destroy -out=tfplan
+      
+      - name: Terraform Destroy
+        if: github.event.inputs.action == 'destroy'
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: terraform apply -auto-approve tfplan
+      
+      - name: Verify Deployment
+        if: github.event.inputs.action == 'apply'
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          echo "Network Infrastructure Deployed Successfully!"
+          echo "Load Balancer IP: $(terraform output -raw load_balancer_ip)"
+          echo "Domain Name: $(terraform output -raw domain_name)"
+          echo "Name Servers: $(terraform output -raw name_servers)"
