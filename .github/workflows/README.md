@@ -9,27 +9,29 @@ The workflows are designed to support:
 - Multiple environments (dev, uat, prod)
 - Both manual and automated deployments
 - Branch-based deployments (develop → dev, uat → uat, main → prod)
+- Separate network infrastructure deployment
 
 ## Available Workflows
 
-### 1. `deploy-lb-dns.yml` - Manual Load Balancer and DNS Setup
+### 1. `network-deploy.yml` - Network Infrastructure Deployment
 
-This workflow is used to manually configure Load Balancer and DNS settings for an application in a specific environment.
+This workflow manages the deployment of network infrastructure including load balancers, DNS, certificates, and security policies.
 
 **Trigger**: Manual workflow dispatch
 **Parameters**:
 - `environment`: Environment to deploy to (dev, uat, prod)
 - `application`: Application to configure (giortech, waspwallet, academyaxis)
+- `action`: Action to perform (plan, apply, destroy)
 
 **What it does**:
 - Sets up project variables based on inputs
-- Gets Workload Identity configuration from Terraform
-- Authenticates to Google Cloud
-- Executes the Load Balancer and DNS setup script
+- Creates or updates Terraform configuration for network infrastructure
+- Applies the Terraform configuration
+- Verifies the deployment
 
 ### 2. `branch-deploy.yml` - Automated Branch-Based Infrastructure Deployment
 
-This workflow automatically deploys infrastructure when changes are pushed to specific branches.
+This workflow automatically deploys application infrastructure when changes are pushed to specific branches.
 
 **Trigger**: Push to develop, uat, or main branch
 **What it does**:
@@ -37,7 +39,6 @@ This workflow automatically deploys infrastructure when changes are pushed to sp
 - Determines application based on repository name
 - Sets up Terraform working directory
 - Initializes and applies Terraform configurations
-- Sets up Load Balancer and DNS
 
 ### 3. `app-deploy.yml` - Application Deployment
 
@@ -54,6 +55,14 @@ This workflow builds and deploys application containers to Cloud Run.
 - Deploys the container to Cloud Run
 - Runs post-deployment tests
 
+## Deployment Sequence
+
+For a complete deployment of a new application:
+
+1. First, deploy the base infrastructure using `branch-deploy.yml`
+2. Then, deploy the network infrastructure using `network-deploy.yml`
+3. Finally, deploy the application using `app-deploy.yml`
+
 ## Branch to Environment Mapping
 
 | Branch   | Environment | Project Suffix |
@@ -62,54 +71,17 @@ This workflow builds and deploys application containers to Cloud Run.
 | uat      | uat         | -uat-project   |
 | main     | prod        | -prod-project  |
 
-## Directory Structure
-
-The workflows expect the following directory structure:
-
-```
-org-infrastructure/
-├── .github/
-│   └── workflows/
-│       ├── deploy-lb-dns.yml
-│       ├── branch-deploy.yml
-│       └── app-deploy.yml
-│
-├── scripts/
-│   └── setup-lb-dns.sh
-│
-└── terraform/
-    └── organization/
-        ├── giortech/
-        │   ├── dev/
-        │   ├── uat/
-        │   └── prod/
-        ├── waspwallet/
-        │   ├── dev/
-        │   ├── uat/
-        │   └── prod/
-        └── academyaxis/
-            ├── dev/
-            ├── uat/
-            └── prod/
-```
-
-## Workload Identity
-
-The workflows use Workload Identity Federation to authenticate with Google Cloud. Each project should have:
-- A Workload Identity Pool named `github-pool`
-- A Provider named `github-provider`
-- A Service Account named `github-actions-sa`
-
 ## Usage Examples
 
-### Setup Load Balancer and DNS for giortech production:
+### Deploy network infrastructure for giortech production:
 
 1. Go to the Actions tab in GitHub
-2. Select "Deploy Load Balancer and DNS" workflow
+2. Select "Network Infrastructure Deployment" workflow
 3. Click "Run workflow"
 4. Select:
    - Environment: prod
    - Application: giortech
+   - Action: apply
 5. Click "Run workflow"
 
 ### Deploy application changes:
@@ -120,26 +92,3 @@ Simply push to the appropriate branch:
 - For production: Push to `main` branch
 
 The application will be automatically built and deployed to the corresponding environment.
-
-## Troubleshooting
-
-### Common Issues:
-
-1. **"Directory not found" error**:
-   - Ensure the Terraform directory structure matches the expected pattern
-   - Check that environment names in workflow inputs match directory names (dev, uat, prod)
-
-2. **Authentication errors**:
-   - Verify Workload Identity Federation is properly set up
-   - Check that the GitHub repository has access to the service account
-
-3. **Terraform errors**:
-   - Try running Terraform locally with the same variables
-   - Check that the Terraform state is properly initialized
-
-## Maintenance
-
-When adding a new application:
-1. Create the folder structure in `terraform/organization/`
-2. Set up Workload Identity for the new application's projects
-3. Update application choices in workflow files if needed
