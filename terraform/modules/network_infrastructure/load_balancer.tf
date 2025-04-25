@@ -26,9 +26,13 @@ resource "google_compute_backend_service" "backend" {
   project               = var.project_id
   load_balancing_scheme = "EXTERNAL_MANAGED"
   
-backend {
-  group = var.skip_neg ? null : google_compute_region_network_endpoint_group.serverless_neg[0].id
-}
+  # Only create backend configuration if NEG exists
+  dynamic "backend" {
+    for_each = var.skip_neg ? [] : [1]
+    content {
+      group = google_compute_region_network_endpoint_group.serverless_neg[0].id
+    }
+  }
 
   # Enable CDN for production if requested
   dynamic "cdn_policy" {
