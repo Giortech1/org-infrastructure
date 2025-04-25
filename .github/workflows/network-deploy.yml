@@ -174,35 +174,41 @@ jobs:
   deploy-network:
     needs: [determine-context, get-workload-identity]
     runs-on: ubuntu-latest
-  
+    
     permissions:
       contents: 'read'
       id-token: 'write'
-  
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-    
-      - name: Debug context values
+      
+      - name: Debug project ID issue
         run: |
-          echo "Application: ${{ needs.determine-context.outputs.application }}"
-          echo "Environment: ${{ needs.determine-context.outputs.environment }}"
-          echo "Project ID: ${{ needs.determine-context.outputs.project_id }}"
-          echo "Service Name: ${{ needs.determine-context.outputs.service_name }}"
-          echo "Workload Identity Provider: ${{ needs.get-workload-identity.outputs.wi_provider }}"
-          echo "Service Account: ${{ needs.get-workload-identity.outputs.sa_email }}"
-    
+          echo "Raw project ID from needs context: '${{ needs.determine-context.outputs.project_id }}'"
+          echo "Raw application from needs context: '${{ needs.determine-context.outputs.application }}'"
+          echo "Raw environment from needs context: '${{ needs.determine-context.outputs.environment }}'"
+          
+          # Derive project ID manually
+          APPLICATION="${{ needs.determine-context.outputs.application }}"
+          ENVIRONMENT="${{ needs.determine-context.outputs.environment }}"
+          DERIVED_PROJECT_ID="${APPLICATION}-${ENVIRONMENT}-project"
+          echo "Manually derived project ID: '$DERIVED_PROJECT_ID'"
+          
+          # Store in environment variables for later steps
+          echo "ACTUAL_PROJECT_ID=$DERIVED_PROJECT_ID" >> $GITHUB_ENV
+      
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
         with:
           workload_identity_provider: ${{ needs.get-workload-identity.outputs.wi_provider }}
           service_account: ${{ needs.get-workload-identity.outputs.sa_email }}
-          project_id: ${{ needs.determine-context.outputs.project_id }}
-    
+          project_id: ${{ env.ACTUAL_PROJECT_ID }}
+      
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
         with:
-          project_id: ${{ needs.determine-context.outputs.project_id }}
+          project_id: ${{ env.ACTUAL_PROJECT_ID }}
       
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
@@ -279,7 +285,7 @@ jobs:
           variable "project_id" {
             description = "The GCP project ID"
             type        = string
-            default     = "${{ needs.determine-context.outputs.project_id }}"
+            default     = "${{ env.ACTUAL_PROJECT_ID }}"
           }
           
           variable "region" {
