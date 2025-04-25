@@ -9,6 +9,7 @@ resource "google_compute_global_address" "lb_ip" {
 
 # Create serverless NEG for Cloud Run service
 resource "google_compute_region_network_endpoint_group" "serverless_neg" {
+  count                 = var.skip_neg ? 0 : 1
   name                  = "${local.service_name}-neg"
   project               = var.project_id
   region                = var.region
@@ -25,9 +26,9 @@ resource "google_compute_backend_service" "backend" {
   project               = var.project_id
   load_balancing_scheme = "EXTERNAL_MANAGED"
   
-  backend {
-    group = google_compute_region_network_endpoint_group.serverless_neg.id
-  }
+backend {
+  group = var.skip_neg ? null : google_compute_region_network_endpoint_group.serverless_neg[0].id
+}
 
   # Enable CDN for production if requested
   dynamic "cdn_policy" {
@@ -74,7 +75,8 @@ resource "google_certificate_manager_certificate" "certificate" {
 # Create self-signed certificate for non-prod environments
 resource "google_compute_ssl_certificate" "self_signed" {
   count       = var.environment != "prod" ? 1 : 0
-  name        = "${local.service_name}-self-signed-cert"
+  # Add a timestamp to make the name unique
+  name        = "${local.service_name}-self-signed-cert-${formatdate("YYYYMMDDhhmmss", timestamp())}"
   project     = var.project_id
   private_key = file("${path.module}/cert/key.pem")
   certificate = file("${path.module}/cert/cert.pem")

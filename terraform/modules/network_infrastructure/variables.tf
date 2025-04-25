@@ -67,3 +67,9 @@ variable "enable_monitoring" {
   type        = bool
   default     = true
 }
+
+variable "skip_neg" {
+  description = "Whether to skip creating the NEG (useful if Cloud Run service doesn't exist yet)"
+  type        = bool
+  default     = false
+}
