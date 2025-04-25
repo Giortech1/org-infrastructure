@@ -7,7 +7,6 @@ resource "google_dns_managed_zone" "dns_zone" {
   description = "DNS zone for ${var.application}.${var.domain}"
   project     = var.project_id
   
-  depends_on = [google_project_service.networking_apis]
 }
 
 # A record for the environment
