@@ -174,22 +174,31 @@ jobs:
   deploy-network:
     needs: [determine-context, get-workload-identity]
     runs-on: ubuntu-latest
-    
+  
     permissions:
       contents: 'read'
       id-token: 'write'
-    
+  
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+    
+      - name: Debug context values
+        run: |
+          echo "Application: ${{ needs.determine-context.outputs.application }}"
+          echo "Environment: ${{ needs.determine-context.outputs.environment }}"
+          echo "Project ID: ${{ needs.determine-context.outputs.project_id }}"
+          echo "Service Name: ${{ needs.determine-context.outputs.service_name }}"
+          echo "Workload Identity Provider: ${{ needs.get-workload-identity.outputs.wi_provider }}"
+          echo "Service Account: ${{ needs.get-workload-identity.outputs.sa_email }}"
+    
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
         with:
           workload_identity_provider: ${{ needs.get-workload-identity.outputs.wi_provider }}
           service_account: ${{ needs.get-workload-identity.outputs.sa_email }}
           project_id: ${{ needs.determine-context.outputs.project_id }}
-      
+    
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
         with:
