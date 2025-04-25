@@ -136,35 +136,41 @@ jobs:
       - name: Set Workload Identity values
         id: set-wi
         run: |
+          # Store the project ID in a variable
+          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
+          echo "Working with project ID: $PROJECT_ID"
+          
           # Map project IDs to their corresponding Workload Identity provider paths
-          if [[ "${{ needs.determine-context.outputs.project_id }}" == "giortech-dev-project" ]]; then
+          if [[ "$PROJECT_ID" == "giortech-dev-project" ]]; then
             echo "wi_provider=projects/653675374627/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-          elif [[ "${{ needs.determine-context.outputs.project_id }}" == "giortech-uat-project" ]]; then
+          elif [[ "$PROJECT_ID" == "giortech-uat-project" ]]; then
             echo "wi_provider=projects/28962750525/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-          elif [[ "${{ needs.determine-context.outputs.project_id }}" == "giortech-prod-project" ]]; then
+          elif [[ "$PROJECT_ID" == "giortech-prod-project" ]]; then
             echo "wi_provider=projects/371831144642/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-          elif [[ "${{ needs.determine-context.outputs.project_id }}" == "waspwallet-dev-project" ]]; then
+          elif [[ "$PROJECT_ID" == "waspwallet-dev-project" ]]; then
             echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-          elif [[ "${{ needs.determine-context.outputs.project_id }}" == "waspwallet-uat-project" ]]; then
+          elif [[ "$PROJECT_ID" == "waspwallet-uat-project" ]]; then
             echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-          elif [[ "${{ needs.determine-context.outputs.project_id }}" == "waspwallet-prod-project" ]]; then
+          elif [[ "$PROJECT_ID" == "waspwallet-prod-project" ]]; then
             echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-          elif [[ "${{ needs.determine-context.outputs.project_id }}" == "academyaxis-dev-project" ]]; then
+          elif [[ "$PROJECT_ID" == "academyaxis-dev-project" ]]; then
             echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-          elif [[ "${{ needs.determine-context.outputs.project_id }}" == "academyaxis-uat-project" ]]; then
+          elif [[ "$PROJECT_ID" == "academyaxis-uat-project" ]]; then
             echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-          elif [[ "${{ needs.determine-context.outputs.project_id }}" == "academyaxis-prod-project" ]]; then
+          elif [[ "$PROJECT_ID" == "academyaxis-prod-project" ]]; then
             echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
           else
-            echo "Unknown project ID: ${{ needs.determine-context.outputs.project_id }}"
+            echo "Unknown project ID: $PROJECT_ID"
             exit 1
           fi
           
           # Set the service account email
-          echo "sa_email=github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          echo "sa_email=github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
           
-          echo "Using Workload Identity Provider: $(cat $GITHUB_OUTPUT | grep wi_provider | cut -d'=' -f2)"
-          echo "Using Service Account: $(cat $GITHUB_OUTPUT | grep sa_email | cut -d'=' -f2)"
+          # Debug output
+          echo "Project ID: $PROJECT_ID"
+          echo "Workload Identity Provider set to: $(cat $GITHUB_OUTPUT | grep wi_provider | cut -d'=' -f2)"
+          echo "Service Account set to: $(cat $GITHUB_OUTPUT | grep sa_email | cut -d'=' -f2)"
 
   deploy-network:
     needs: [determine-context, get-workload-identity]
