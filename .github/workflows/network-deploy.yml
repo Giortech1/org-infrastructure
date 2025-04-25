@@ -80,37 +80,26 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "application=${{ github.event.inputs.application }}" >> $GITHUB_OUTPUT
           else
-            # Extract from repository name
-            REPO_NAME="${{ github.repository }}"
-            REPO_PART=$(echo $REPO_NAME | cut -d'/' -f2)
-            
-            if [[ "$REPO_PART" == giortech* ]]; then
-              APP_NAME="giortech"
-            elif [[ "$REPO_PART" == waspwallet* ]]; then
-              APP_NAME="waspwallet"
-            elif [[ "$REPO_PART" == academyaxis* ]]; then
-              APP_NAME="academyaxis"
-            else
-              APP_NAME=$REPO_PART
-            fi
-            
-            echo "application=$APP_NAME" >> $GITHUB_OUTPUT
+            # Default to giortech for automated triggers
+            echo "application=giortech" >> $GITHUB_OUTPUT
           fi
           
           echo "Using application: $(cat $GITHUB_OUTPUT | grep application | cut -d'=' -f2)"
-
+      
       - name: Set project ID and service name
         id: set-project
         run: |
-          APP="${{ steps.set-app.outputs.application }}"
-          ENV="${{ steps.set-env.outputs.environment }}"
-            
+          APP="$(cat $GITHUB_OUTPUT | grep application | cut -d'=' -f2)"
+          ENV="$(cat $GITHUB_OUTPUT | grep environment | cut -d'=' -f2)"
+          
           PROJECT_ID="${APP}-${ENV}-project"
+          SERVICE_NAME="${APP}-${ENV}"
+          
           echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
-          echo "service_name=${APP}-${ENV}" >> $GITHUB_OUTPUT
-            
+          echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
+          
           echo "Using project ID: $PROJECT_ID"
-          echo "Using service name: ${APP}-${ENV}"
+          echo "Using service name: $SERVICE_NAME"
       
       - name: Set action based on trigger
         id: set-action
@@ -134,42 +123,54 @@ jobs:
       - name: Set Workload Identity values
         id: set-wi
         run: |
-          # Determine the appropriate application from the context
+          # Get the target application from inputs
           APP="${{ needs.determine-context.outputs.application }}"
           ENV="${{ needs.determine-context.outputs.environment }}"
-          PROJECT_ID="${APP}-${ENV}-project"
-          echo "Working with application: $APP, environment: $ENV, project ID: $PROJECT_ID"
-    
-          # Map project IDs to their corresponding Workload Identity provider paths
-          if [[ "$PROJECT_ID" == "giortech-dev-project" ]]; then
+          TARGET_PROJECT="${APP}-${ENV}-project"
+          
+          echo "Working with repository: org-infrastructure"
+          echo "Target application: $APP, environment: $ENV, target project: $TARGET_PROJECT"
+          
+          # Map based on the target application/environment, not the repository name
+          if [[ "$TARGET_PROJECT" == "giortech-dev-project" ]]; then
             echo "wi_provider=projects/653675374627/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-            echo "sa_email=github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
-          elif [[ "$PROJECT_ID" == "giortech-uat-project" ]]; then
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "giortech-uat-project" ]]; then
             echo "wi_provider=projects/28962750525/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-            echo "sa_email=github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
-          elif [[ "$PROJECT_ID" == "giortech-prod-project" ]]; then
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "giortech-prod-project" ]]; then
             echo "wi_provider=projects/371831144642/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-            echo "sa_email=github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
-          elif [[ "$PROJECT_ID" == "waspwallet-dev-project" ]]; then
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "waspwallet-dev-project" ]]; then
             echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-            echo "sa_email=github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
-          elif [[ "$PROJECT_ID" == "waspwallet-uat-project" ]]; then
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "waspwallet-uat-project" ]]; then
             echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-            echo "sa_email=github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
-          elif [[ "$PROJECT_ID" == "waspwallet-prod-project" ]]; then
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "waspwallet-prod-project" ]]; then
             echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-            echo "sa_email=github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "academyaxis-dev-project" ]]; then
+            echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "academyaxis-uat-project" ]]; then
+            echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "academyaxis-prod-project" ]]; then
+            echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
           # Add more conditions for other applications and environments
           else
-            echo "Unknown project ID: $PROJECT_ID"
-            exit 1
-          fi 
-
+            echo "Unknown target project: $TARGET_PROJECT. Using giortech-dev-project as fallback."
+            echo "wi_provider=projects/653675374627/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@giortech-dev-project.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          fi
+          
           # Debug output
-          echo "Project ID: $PROJECT_ID"
+          echo "Target project: $TARGET_PROJECT"
           echo "Workload Identity Provider set to: $(cat $GITHUB_OUTPUT | grep wi_provider | cut -d'=' -f2 || echo 'Not set')"
           echo "Service Account set to: $(cat $GITHUB_OUTPUT | grep sa_email | cut -d'=' -f2 || echo 'Not set')"
-          
+
   deploy-network:
     needs: [determine-context, get-workload-identity]
     runs-on: ubuntu-latest
