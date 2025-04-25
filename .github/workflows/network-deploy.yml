@@ -232,6 +232,18 @@ jobs:
           # Use 2048 bits instead of 4096 for key size
           openssl req -x509 -newkey rsa:2048 -keyout terraform/modules/network_infrastructure/cert/key.pem -out terraform/modules/network_infrastructure/cert/cert.pem -days 365 -nodes -subj "/CN=${{ needs.determine-context.outputs.application }}.${{ needs.determine-context.outputs.environment }}.academyaxis.io" -addext "subjectAltName = DNS:${{ needs.determine-context.outputs.application }}.${{ needs.determine-context.outputs.environment }}.academyaxis.io"
       
+      - name: Check if Cloud Run service exists
+        id: check-service
+        run: |
+          if gcloud run services describe ${{ needs.determine-context.outputs.service_name }} \
+            --region=${{ env.REGION }} \
+            --project=${{ env.ACTUAL_PROJECT_ID }} 2>/dev/null; then
+            echo "service_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "service_exists=false" >> $GITHUB_OUTPUT
+            echo "Warning: Cloud Run service ${{ needs.determine-context.outputs.service_name }} does not exist yet."
+          fi
+
       - name: Create Terraform main.tf file
         run: |
           cat > ${{ steps.tf-dir.outputs.tf_dir }}/main.tf << EOF
@@ -254,8 +266,8 @@ jobs:
           }
           
           module "network_infrastructure" {
-            source = "../../../modules/network_infrastructure"
-            
+            source = "${path.module}/../../../modules/network_infrastructure"
+  
             project_id            = var.project_id
             region                = var.region
             environment           = var.environment
@@ -265,6 +277,7 @@ jobs:
             enable_cloud_armor    = var.environment == "prod" ? true : false
             cloud_run_service_name = "${{ needs.determine-context.outputs.service_name }}"
             enable_monitoring     = true
+            skip_neg              = "${{ steps.check-service.outputs.service_exists }}" != "true"
           }
           
           output "load_balancer_ip" {
