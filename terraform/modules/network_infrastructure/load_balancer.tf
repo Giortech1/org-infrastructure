@@ -112,20 +112,16 @@ resource "google_compute_target_https_proxy" "https_proxy" {
   url_map = google_compute_url_map.url_map.id
   
   # Use certificate map for production environment
-  dynamic "certificate_map" {
-    for_each = var.environment == "prod" ? [1] : []
-    content {
-      certificate_map = google_certificate_manager_certificate_map.certificate_map[0].id
-    }
-  }
+  certificate_map = var.environment == "prod" ? (
+    length(google_certificate_manager_certificate_map.certificate_map) > 0 ? 
+    google_certificate_manager_certificate_map.certificate_map[0].id : null
+  ) : null
   
   # Use self-signed certificate for non-prod environments
-  dynamic "ssl_certificates" {
-    for_each = var.environment != "prod" ? [1] : []
-    content {
-      ssl_certificates = [google_compute_ssl_certificate.self_signed[0].id]
-    }
-  }
+  ssl_certificates = var.environment != "prod" ? (
+    length(google_compute_ssl_certificate.self_signed) > 0 ? 
+    [google_compute_ssl_certificate.self_signed[0].id] : null
+  ) : null
 }
 
 # Create forwarding rule
