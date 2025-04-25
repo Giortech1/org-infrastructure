@@ -134,42 +134,39 @@ jobs:
       - name: Set Workload Identity values
         id: set-wi
         run: |
-          # Store the project ID in a variable - fix the variable reference
-          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
-          echo "Working with project ID: $PROJECT_ID"
+          # Determine the appropriate application from the context
+          APP="${{ needs.determine-context.outputs.application }}"
+          ENV="${{ needs.determine-context.outputs.environment }}"
+          PROJECT_ID="${APP}-${ENV}-project"
+          echo "Working with application: $APP, environment: $ENV, project ID: $PROJECT_ID"
     
           # Map project IDs to their corresponding Workload Identity provider paths
           if [[ "$PROJECT_ID" == "giortech-dev-project" ]]; then
             echo "wi_provider=projects/653675374627/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
           elif [[ "$PROJECT_ID" == "giortech-uat-project" ]]; then
             echo "wi_provider=projects/28962750525/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
           elif [[ "$PROJECT_ID" == "giortech-prod-project" ]]; then
-            echo "wi_provider=projects/371831144642/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
           elif [[ "$PROJECT_ID" == "waspwallet-dev-project" ]]; then
-            echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+             echo "wi_provider=projects/371831144642/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
           elif [[ "$PROJECT_ID" == "waspwallet-uat-project" ]]; then
             echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-          elif [[ "$PROJECT_ID" == "waspwallet-prod-project" ]]; then
+            echo "sa_email=github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$PROJECT_ID" == "waspwallet-dev-project" ]]; then
             echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-          elif [[ "$PROJECT_ID" == "academyaxis-dev-project" ]]; then
-            echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-          elif [[ "$PROJECT_ID" == "academyaxis-uat-project" ]]; then
-            echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-          elif [[ "$PROJECT_ID" == "academyaxis-prod-project" ]]; then
-            echo "wi_provider=projects/REPLACE_WITH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          # Add more conditions for other applications and environments
           else
             echo "Unknown project ID: $PROJECT_ID"
             exit 1
-          fi
-    
-          # Set the service account email
-          echo "sa_email=github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          fi 
 
           # Debug output
           echo "Project ID: $PROJECT_ID"
           echo "Workload Identity Provider set to: $(cat $GITHUB_OUTPUT | grep wi_provider | cut -d'=' -f2 || echo 'Not set')"
           echo "Service Account set to: $(cat $GITHUB_OUTPUT | grep sa_email | cut -d'=' -f2 || echo 'Not set')"
-
+          
   deploy-network:
     needs: [determine-context, get-workload-identity]
     runs-on: ubuntu-latest
