@@ -74,5 +74,4 @@ resource "google_compute_security_policy" "security_policy" {
     }
   }
 
-  depends_on = [google_project_service.networking_apis]
 }
