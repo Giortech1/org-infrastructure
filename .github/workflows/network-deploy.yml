@@ -1,0 +1,364 @@
+# .github/workflows/network-deploy.yml
+name: Network Infrastructure Deployment
+
+on:
+  # Automated triggers
+  push:
+    branches:
+      - develop
+      - uat
+      - main
+    paths:
+      - 'terraform/modules/network_infrastructure/**'
+      - '.github/workflows/network-deploy.yml'
+  
+  # Manual trigger option
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy (dev, uat, prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - uat
+          - prod
+      application:
+        description: 'Application to configure (giortech, waspwallet, academyaxis)'
+        required: true
+        default: 'giortech'
+        type: choice
+        options:
+          - giortech
+          - waspwallet
+          - academyaxis
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+env:
+  REGION: us-central1
+
+jobs:
+  determine-context:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      application: ${{ steps.set-app.outputs.application }}
+      project_id: ${{ steps.set-project.outputs.project_id }}
+      service_name: ${{ steps.set-service.outputs.service_name }}
+      action: ${{ steps.set-action.outputs.action }}
+    
+    steps:
+      - name: Set environment based on trigger
+        id: set-env
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/uat" ]]; then
+            echo "environment=uat" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          fi
+          
+          ENV=$(cat $GITHUB_OUTPUT | grep environment | cut -d'=' -f2)
+          echo "Using environment: $ENV"
+      
+      - name: Set application based on trigger
+        id: set-app
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "application=${{ github.event.inputs.application }}" >> $GITHUB_OUTPUT
+          else
+            # Default to giortech for automated triggers
+            echo "application=giortech" >> $GITHUB_OUTPUT
+          fi
+          
+          APP=$(cat $GITHUB_OUTPUT | grep application | cut -d'=' -f2)
+          echo "Using application: $APP"
+      
+      - name: Set project ID and service name
+        id: set-project
+        run: |
+          APP=$(cat $GITHUB_OUTPUT | grep application | cut -d'=' -f2)
+          ENV=$(cat $GITHUB_OUTPUT | grep environment | cut -d'=' -f2)
+          
+          PROJECT_ID="${APP}-${ENV}-project"
+          SERVICE_NAME="${APP}-${ENV}"
+          
+          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
+          echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
+          
+          echo "Using project ID: $PROJECT_ID"
+          echo "Using service name: $SERVICE_NAME"
+      
+      - name: Set action based on trigger
+        id: set-action
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "action=${{ github.event.inputs.action }}" >> $GITHUB_OUTPUT
+          else
+            echo "action=apply" >> $GITHUB_OUTPUT
+          fi
+          
+          ACTION=$(cat $GITHUB_OUTPUT | grep action | cut -d'=' -f2)
+          echo "Using action: $ACTION"
+
+  get-workload-identity:
+    needs: determine-context
+    runs-on: ubuntu-latest
+    outputs:
+      wi_provider: ${{ steps.set-wi.outputs.wi_provider }}
+      sa_email: ${{ steps.set-wi.outputs.sa_email }}
+    
+    steps:
+      - name: Set Workload Identity values
+        id: set-wi
+        run: |
+          # Get the target application from inputs
+          APP="${{ needs.determine-context.outputs.application }}"
+          ENV="${{ needs.determine-context.outputs.environment }}"
+          TARGET_PROJECT="${APP}-${ENV}-project"
+          
+          echo "Working with repository: org-infrastructure"
+          echo "Target application: $APP, environment: $ENV, target project: $TARGET_PROJECT"
+          
+          # Map based on the target application/environment, not the repository name
+          if [[ "$TARGET_PROJECT" == "giortech-dev-project" ]]; then
+            echo "wi_provider=projects/653675374627/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "giortech-uat-project" ]]; then
+            echo "wi_provider=projects/28962750525/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "giortech-prod-project" ]]; then
+            echo "wi_provider=projects/371831144642/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "waspwallet-dev-project" ]]; then
+            echo "wi_provider=projects/waspwallet-dev-project/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "waspwallet-uat-project" ]]; then
+            echo "wi_provider=projects/waspwallet-uat-project/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "waspwallet-prod-project" ]]; then
+            echo "wi_provider=projects/waspwallet-prod-project/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "academyaxis-dev-project" ]]; then
+            echo "wi_provider=projects/academyaxis-dev-project/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "academyaxis-uat-project" ]]; then
+            echo "wi_provider=projects/academyaxis-uat-project/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          elif [[ "$TARGET_PROJECT" == "academyaxis-prod-project" ]]; then
+            echo "wi_provider=projects/academyaxis-prod-project/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${TARGET_PROJECT}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          # Add more conditions for other applications and environments
+          else
+            echo "Unknown target project: $TARGET_PROJECT. Using giortech-dev-project as fallback."
+            echo "wi_provider=projects/653675374627/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@giortech-dev-project.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          fi
+          
+          # Debug output
+          echo "Target project: $TARGET_PROJECT"
+          WI_PROVIDER=$(cat $GITHUB_OUTPUT | grep wi_provider | cut -d'=' -f2 || echo 'Not set')
+          SA_EMAIL=$(cat $GITHUB_OUTPUT | grep sa_email | cut -d'=' -f2 || echo 'Not set')
+          echo "Workload Identity Provider set to: $WI_PROVIDER"
+          echo "Service Account set to: $SA_EMAIL"
+
+  deploy-network:
+    needs: [determine-context, get-workload-identity]
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Debug project ID issue
+        run: |
+          echo "Raw project ID from needs context: '${{ needs.determine-context.outputs.project_id }}'"
+          echo "Raw application from needs context: '${{ needs.determine-context.outputs.application }}'"
+          echo "Raw environment from needs context: '${{ needs.determine-context.outputs.environment }}'"
+          
+          # Derive project ID manually
+          APPLICATION="${{ needs.determine-context.outputs.application }}"
+          ENVIRONMENT="${{ needs.determine-context.outputs.environment }}"
+          DERIVED_PROJECT_ID="${APPLICATION}-${ENVIRONMENT}-project"
+          echo "Manually derived project ID: '$DERIVED_PROJECT_ID'"
+          
+          # Store in environment variables for later steps
+          echo "ACTUAL_PROJECT_ID=$DERIVED_PROJECT_ID" >> $GITHUB_ENV
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          workload_identity_provider: ${{ needs.get-workload-identity.outputs.wi_provider }}
+          service_account: ${{ needs.get-workload-identity.outputs.sa_email }}
+          project_id: ${{ env.ACTUAL_PROJECT_ID }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ env.ACTUAL_PROJECT_ID }}
+      
+      - name: Check if Cloud Run service exists
+        id: check-service
+        run: |
+          if gcloud run services describe ${{ needs.determine-context.outputs.service_name }} \
+            --region=${{ env.REGION }} \
+            --project=${{ env.ACTUAL_PROJECT_ID }} 2>/dev/null; then
+            echo "service_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "service_exists=false" >> $GITHUB_OUTPUT
+            echo "Warning: Cloud Run service ${{ needs.determine-context.outputs.service_name }} does not exist yet."
+          fi
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Set Terraform working directory
+        id: tf-dir
+        run: |
+          TF_DIR="terraform/network-infra/${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
+          echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
+          
+          # Create the directory if it doesn't exist
+          mkdir -p $TF_DIR
+      
+      # Create self-signed certificate for testing (if needed)
+      - name: Create self-signed certificate
+        if: needs.determine-context.outputs.environment != 'prod'
+        run: |
+          mkdir -p terraform/modules/network_infrastructure/cert
+          # Use 2048 bits instead of 4096 for key size
+          openssl req -x509 -newkey rsa:2048 -keyout terraform/modules/network_infrastructure/cert/key.pem -out terraform/modules/network_infrastructure/cert/cert.pem -days 365 -nodes -subj "/CN=${{ needs.determine-context.outputs.application }}.${{ needs.determine-context.outputs.environment }}.academyaxis.io" -addext "subjectAltName = DNS:${{ needs.determine-context.outputs.application }}.${{ needs.determine-context.outputs.environment }}.academyaxis.io"
+      
+      - name: Create Terraform main.tf file
+        run: |
+          cat > ${{ steps.tf-dir.outputs.tf_dir }}/main.tf << EOF
+           terraform {
+           required_providers {
+             google = {
+              source  = "hashicorp/google"
+              version = "~> 4.0"
+            }
+          }
+          backend "gcs" {
+            bucket = "academyaxis-terraform-state"
+            prefix = "${{ needs.determine-context.outputs.application }}/network/${{ needs.determine-context.outputs.environment }}"
+            }
+          }
+
+          provider "google" {
+          project = var.project_id
+          region  = var.region
+          }
+
+          module "network_infrastructure" {
+            source = "../../../modules/network_infrastructure"
+  
+            project_id            = var.project_id
+            region                = var.region
+            environment           = var.environment
+            application           = var.application
+            domain                = "academyaxis.io"
+            enable_cdn            = var.environment == "prod" ? true : false
+            enable_cloud_armor    = var.environment == "prod" ? true : false
+            cloud_run_service_name = "${{ needs.determine-context.outputs.service_name }}"
+            enable_monitoring     = true
+            skip_neg              = ${{ steps.check-service.outputs.service_exists != 'true' }}
+          }
+
+          output "load_balancer_ip" {
+            value = module.network_infrastructure.load_balancer_ip
+          }
+
+          output "domain_name" {
+          value = module.network_infrastructure.domain_name
+          }
+
+          output "name_servers" {
+          value = module.network_infrastructure.name_servers
+          }
+          EOF
+      
+      - name: Create Terraform variables.tf file
+        run: |
+          cat > ${{ steps.tf-dir.outputs.tf_dir }}/variables.tf << EOF
+          variable "project_id" {
+            description = "The GCP project ID"
+            type        = string
+            default     = "${{ env.ACTUAL_PROJECT_ID }}"
+          }
+
+          variable "region" {
+            description = "The GCP region"
+            type        = string
+            default     = "${{ env.REGION }}"
+          }
+
+          variable "environment" {
+            description = "The environment (dev, uat, prod)"
+            type        = string
+            default     = "${{ needs.determine-context.outputs.environment }}"
+          }
+
+          variable "application" {
+            description = "The application name"
+            type        = string
+            default     = "${{ needs.determine-context.outputs.application }}"
+          }
+          EOF
+      
+      - name: Terraform Init
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: terraform init
+      
+      - name: Terraform Validate
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: terraform validate
+      
+      - name: Terraform Plan
+        if: needs.determine-context.outputs.action == 'plan' || needs.determine-context.outputs.action == 'apply'
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: terraform plan -out=tfplan
+      
+      - name: Terraform Apply
+        if: needs.determine-context.outputs.action == 'apply'
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: terraform apply -auto-approve tfplan
+      
+      - name: Terraform Destroy Plan
+        if: needs.determine-context.outputs.action == 'destroy'
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: terraform plan -destroy -out=tfplan
+      
+      - name: Terraform Destroy
+        if: needs.determine-context.outputs.action == 'destroy'
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: terraform apply -auto-approve tfplan
+      
+      - name: Verify Deployment
+        if: needs.determine-context.outputs.action == 'apply'
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          echo "Network Infrastructure Deployed Successfully!"
+          echo "Load Balancer IP: $(terraform output -raw load_balancer_ip 2>/dev/null || echo 'Not available')"
+          echo "Domain Name: $(terraform output -raw domain_name 2>/dev/null || echo 'Not available')"
+          echo "Name Servers: $(terraform output -raw name_servers 2>/dev/null || echo 'Not available')"
