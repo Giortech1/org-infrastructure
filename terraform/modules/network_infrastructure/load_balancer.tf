@@ -81,6 +81,11 @@ resource "google_compute_ssl_certificate" "self_signed" {
   
   lifecycle {
     create_before_destroy = true
+    # Option 1: Ignore changes - not ideal but works for testing
+    # ignore_changes = all
+
+    # Option 2: Prevent recreation
+    prevent_destroy = false
   }
 }
 
