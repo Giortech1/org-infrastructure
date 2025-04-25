@@ -291,7 +291,7 @@ jobs:
             output "name_servers" {
               value = module.network_infrastructure.name_servers
             }
-              
+
             EOF
       
       - name: Create Terraform variables.tf file
@@ -320,6 +320,7 @@ jobs:
             type        = string
             default     = "${{ needs.determine-context.outputs.application }}"
           }
+        
           EOF
       
       - name: Terraform Init
