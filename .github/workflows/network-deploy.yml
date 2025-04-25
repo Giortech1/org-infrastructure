@@ -244,82 +244,54 @@ jobs:
             echo "Warning: Cloud Run service ${{ needs.determine-context.outputs.service_name }} does not exist yet."
           fi
 
-      - name: Create Terraform main.tf file
-        run: |
-          cat > ${{ steps.tf-dir.outputs.tf_dir }}/main.tf << EOF
-          terraform {
-            required_providers {
-              google = {
-                source  = "hashicorp/google"
-                version = "~> 4.0"
+          - name: Create Terraform main.tf file
+          run: |
+            cat > terraform/network-infra/giortech/dev/main.tf << 'EOF'
+            terraform {
+              required_providers {
+                google = {
+                  source  = "hashicorp/google"
+                  version = "~> 4.0"
+                }
+              }
+              backend "gcs" {
+                bucket = "academyaxis-terraform-state"
+                prefix = "giortech/network/dev"
               }
             }
-            backend "gcs" {
-              bucket = "academyaxis-terraform-state"
-              prefix = "${{ needs.determine-context.outputs.application }}/network/${{ needs.determine-context.outputs.environment }}"
+            
+            provider "google" {
+              project = var.project_id
+              region  = var.region
             }
-          }
-          
-          provider "google" {
-            project = var.project_id
-            region  = var.region
-          }
-          
-          module "network_infrastructure" {
-            source = "${path.module}/../../../modules/network_infrastructure"
-  
-            project_id            = var.project_id
-            region                = var.region
-            environment           = var.environment
-            application           = var.application
-            domain                = "academyaxis.io"
-            enable_cdn            = var.environment == "prod" ? true : false
-            enable_cloud_armor    = var.environment == "prod" ? true : false
-            cloud_run_service_name = "${{ needs.determine-context.outputs.service_name }}"
-            enable_monitoring     = true
-            skip_neg              = "${{ steps.check-service.outputs.service_exists }}" != "true"
-          }
-          
-          output "load_balancer_ip" {
-            value = module.network_infrastructure.load_balancer_ip
-          }
-          
-          output "domain_name" {
-            value = module.network_infrastructure.domain_name
-          }
-          
-          output "name_servers" {
-            value = module.network_infrastructure.name_servers
-          }
-          EOF
-      
-      - name: Create Terraform variables.tf file
-        run: |
-          cat > ${{ steps.tf-dir.outputs.tf_dir }}/variables.tf << EOF
-          variable "project_id" {
-            description = "The GCP project ID"
-            type        = string
-            default     = "${{ env.ACTUAL_PROJECT_ID }}"
-          }
-          
-          variable "region" {
-            description = "The GCP region"
-            type        = string
-            default     = "${{ env.REGION }}"
-          }
-          
-          variable "environment" {
-            description = "The environment (dev, uat, prod)"
-            type        = string
-            default     = "${{ needs.determine-context.outputs.environment }}"
-          }
-          
-          variable "application" {
-            description = "The application name"
-            type        = string
-            default     = "${{ needs.determine-context.outputs.application }}"
-          }
-          EOF
+            
+            module "network_infrastructure" {
+              source = "../../../modules/network_infrastructure"
+              
+              project_id            = var.project_id
+              region                = var.region
+              environment           = var.environment
+              application           = var.application
+              domain                = "academyaxis.io"
+              enable_cdn            = var.environment == "prod" ? true : false
+              enable_cloud_armor    = var.environment == "prod" ? true : false
+              cloud_run_service_name = "giortech-dev"
+              enable_monitoring     = true
+              skip_neg              = true
+            }
+            
+            output "load_balancer_ip" {
+              value = module.network_infrastructure.load_balancer_ip
+            }
+            
+            output "domain_name" {
+              value = module.network_infrastructure.domain_name
+            }
+            
+            output "name_servers" {
+              value = module.network_infrastructure.name_servers
+            }
+            EOF
       
       - name: Terraform Init
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
