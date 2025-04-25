@@ -98,21 +98,19 @@ jobs:
           fi
           
           echo "Using application: $(cat $GITHUB_OUTPUT | grep application | cut -d'=' -f2)"
-      
+
       - name: Set project ID and service name
         id: set-project
         run: |
-          APP="$(cat $GITHUB_OUTPUT | grep application | cut -d'=' -f2)"
-          ENV="$(cat $GITHUB_OUTPUT | grep environment | cut -d'=' -f2)"
-          
+          APP="${{ steps.set-app.outputs.application }}"
+          ENV="${{ steps.set-env.outputs.environment }}"
+            
           PROJECT_ID="${APP}-${ENV}-project"
-          SERVICE_NAME="${APP}-${ENV}"
-          
           echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
-          echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
-          
+          echo "service_name=${APP}-${ENV}" >> $GITHUB_OUTPUT
+            
           echo "Using project ID: $PROJECT_ID"
-          echo "Using service name: $SERVICE_NAME"
+          echo "Using service name: ${APP}-${ENV}"
       
       - name: Set action based on trigger
         id: set-action
@@ -136,10 +134,10 @@ jobs:
       - name: Set Workload Identity values
         id: set-wi
         run: |
-          # Store the project ID in a variable
+          # Store the project ID in a variable - fix the variable reference
           PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
           echo "Working with project ID: $PROJECT_ID"
-          
+    
           # Map project IDs to their corresponding Workload Identity provider paths
           if [[ "$PROJECT_ID" == "giortech-dev-project" ]]; then
             echo "wi_provider=projects/653675374627/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
@@ -163,14 +161,14 @@ jobs:
             echo "Unknown project ID: $PROJECT_ID"
             exit 1
           fi
-          
+    
           # Set the service account email
           echo "sa_email=github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
-          
+
           # Debug output
           echo "Project ID: $PROJECT_ID"
-          echo "Workload Identity Provider set to: $(cat $GITHUB_OUTPUT | grep wi_provider | cut -d'=' -f2)"
-          echo "Service Account set to: $(cat $GITHUB_OUTPUT | grep sa_email | cut -d'=' -f2)"
+          echo "Workload Identity Provider set to: $(cat $GITHUB_OUTPUT | grep wi_provider | cut -d'=' -f2 || echo 'Not set')"
+          echo "Service Account set to: $(cat $GITHUB_OUTPUT | grep sa_email | cut -d'=' -f2 || echo 'Not set')"
 
   deploy-network:
     needs: [determine-context, get-workload-identity]
