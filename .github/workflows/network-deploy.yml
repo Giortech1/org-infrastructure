@@ -235,28 +235,28 @@ jobs:
       - name: Check if Cloud Run service exists
         id: check-service
         run: |
-          if gcloud run services describe ${{ needs.determine-context.outputs.service_name }} \
-            --region=${{ env.REGION }} \
-            --project=${{ env.ACTUAL_PROJECT_ID }} 2>/dev/null; then
+          if gcloud run services describe giortech-dev \
+            --region=us-central1 \
+            --project=giortech-dev-project 2>/dev/null; then
             echo "service_exists=true" >> $GITHUB_OUTPUT
           else
             echo "service_exists=false" >> $GITHUB_OUTPUT
-            echo "Warning: Cloud Run service ${{ needs.determine-context.outputs.service_name }} does not exist yet."
+            echo "Warning: Cloud Run service does not exist yet."
           fi
-
-          - name: Create Terraform main.tf file
-          run: |
-            cat > terraform/network-infra/giortech/dev/main.tf << 'EOF'
-            terraform {
-              required_providers {
-                google = {
-                  source  = "hashicorp/google"
-                  version = "~> 4.0"
-                }
-              }
-              backend "gcs" {
-                bucket = "academyaxis-terraform-state"
-                prefix = "giortech/network/dev"
+        
+      - name: Create Terraform main.tf file
+        run: |
+          cat > terraform/network-infra/giortech/dev/main.tf << 'EOF'
+          terraform {
+            required_providers {
+              google = {
+                source  = "hashicorp/google"
+                version = "~> 4.0"
+               }
+            }
+            backend "gcs" {
+              bucket = "academyaxis-terraform-state"
+              prefix = "giortech/network/dev"
               }
             }
             
@@ -291,7 +291,36 @@ jobs:
             output "name_servers" {
               value = module.network_infrastructure.name_servers
             }
+              
             EOF
+      
+      - name: Create Terraform variables.tf file
+        run: |
+          cat > ${{ steps.tf-dir.outputs.tf_dir }}/variables.tf << EOF
+          variable "project_id" {
+            description = "The GCP project ID"
+            type        = string
+            default     = "${{ env.ACTUAL_PROJECT_ID }}"
+          }
+          
+          variable "region" {
+            description = "The GCP region"
+            type        = string
+            default     = "${{ env.REGION }}"
+          }
+          
+          variable "environment" {
+            description = "The environment (dev, uat, prod)"
+            type        = string
+            default     = "${{ needs.determine-context.outputs.environment }}"
+          }
+          
+          variable "application" {
+            description = "The application name"
+            type        = string
+            default     = "${{ needs.determine-context.outputs.application }}"
+          }
+          EOF
       
       - name: Terraform Init
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
