@@ -5,7 +5,6 @@ resource "google_compute_global_address" "lb_ip" {
   name    = "${local.service_name}-ip"
   project = var.project_id
 
-  depends_on = [google_project_service.networking_apis]
 }
 
 # Create serverless NEG for Cloud Run service
@@ -19,7 +18,6 @@ resource "google_compute_region_network_endpoint_group" "serverless_neg" {
     service = var.cloud_run_service_name
   }
 
-  depends_on = [google_project_service.networking_apis]
 }
 
 # Create backend service with serverless NEG
@@ -72,7 +70,6 @@ resource "google_certificate_manager_certificate" "certificate" {
     domains = [local.full_domain, "www.${local.full_domain}"]
   }
 
-  depends_on = [google_project_service.networking_apis]
 }
 
 # Create self-signed certificate for non-prod environments
