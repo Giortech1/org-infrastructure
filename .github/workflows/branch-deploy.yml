@@ -40,8 +40,11 @@ jobs:
         run: |
           REPO_NAME="${{ github.repository }}"
           REPO_PART=$(echo $REPO_NAME | cut -d'/' -f2)
-          
-          if [[ "$REPO_PART" == giortech* ]]; then
+            
+          if [[ "$REPO_PART" == "org-infrastructure" ]]; then
+            # Map the infrastructure repo to giortech
+            APP_NAME="giortech"
+          elif [[ "$REPO_PART" == giortech* ]]; then
             APP_NAME="giortech"
           elif [[ "$REPO_PART" == waspwallet* ]]; then
             APP_NAME="waspwallet"
@@ -50,7 +53,7 @@ jobs:
           else
             APP_NAME=$REPO_PART
           fi
-          
+            
           echo "application=$APP_NAME" >> $GITHUB_OUTPUT
           echo "Repository $REPO_NAME maps to application: $APP_NAME"
       
