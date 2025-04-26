@@ -248,7 +248,8 @@ jobs:
           mkdir -p terraform/modules/network_infrastructure/cert
           # Use 2048 bits instead of 4096 for key size
           openssl req -x509 -newkey rsa:2048 -keyout terraform/modules/network_infrastructure/cert/key.pem -out terraform/modules/network_infrastructure/cert/cert.pem -days 365 -nodes -subj "/CN=${{ needs.determine-context.outputs.application }}.${{ needs.determine-context.outputs.environment }}.academyaxis.io" -addext "subjectAltName = DNS:${{ needs.determine-context.outputs.application }}.${{ needs.determine-context.outputs.environment }}.academyaxis.io"
-      
+          # Verify the files exist
+          ls -la terraform/modules/network_infrastructure/cert/
       - name: Create Terraform main.tf file
         run: |
           cat > ${{ steps.tf-dir.outputs.tf_dir }}/main.tf << EOF
