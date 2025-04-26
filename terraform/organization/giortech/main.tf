@@ -37,7 +37,7 @@ resource "google_project_service" "services" {
 
 # Workload Identity configuration
 module "workload_identity" {
-  source = "../../../modules/workload_identity"
+  source = "../../modules/workload_identity"
 
   project_id  = var.project_id
   github_org  = "giortech1"
