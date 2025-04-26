@@ -270,7 +270,7 @@ jobs:
               description = "Service Account email for GitHub Actions"
             }
             EOF
-          fi
+                fi
       
       - name: Terraform Init
         if: steps.tf-dir.outputs.tf_dir != ''
