@@ -115,25 +115,32 @@ jobs:
             ENV_DIR="dev"
           fi
           
-          TF_DIR="terraform/organization/${{ needs.determine-context.outputs.application }}/$ENV_DIR"
+          # Use the application name from previous step
+          APP_NAME="${{ needs.determine-context.outputs.application }}"
+          
+          # Set the correct Terraform directory
+          TF_DIR="terraform/organization/$APP_NAME/$ENV_DIR"
           echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
+          
+          # Add debug information
+          echo "Looking for directory: $TF_DIR"
           
           # Check if directory exists
           if [ ! -d "$TF_DIR" ]; then
             echo "Error: Directory $TF_DIR does not exist"
+            echo "Available directories:"
             ls -la terraform/organization/
-            if [ -d "terraform/organization/${{ needs.determine-context.outputs.application }}" ]; then
-              ls -la terraform/organization/${{ needs.determine-context.outputs.application }}/
+            
+            if [ -d "terraform/organization/$APP_NAME" ]; then
+              echo "Available environments for $APP_NAME:"
+              ls -la terraform/organization/$APP_NAME/
             fi
             
             # Use fallback values for Workload Identity
-            PROJECT_NUM=$(gcloud projects describe ${{ needs.determine-context.outputs.project_id }} --format='value(projectNumber)')
-            echo "wi_provider=projects/$PROJECT_NUM/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-            echo "sa_email=github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
-            exit 0
+            echo "Using fallback directory structure"
+          else
+            echo "Using Terraform directory: $TF_DIR"
           fi
-          
-          echo "Using Terraform directory: $TF_DIR"
       
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
