@@ -158,9 +158,18 @@ jobs:
           terraform_version: 1.5.0
       
       - name: Terraform Init
-        if: steps.tf-dir.outputs.tf_dir != '' && fileExists(format('{0}/main.tf', steps.tf-dir.outputs.tf_dir))
+        if: steps.tf-dir.outputs.tf_dir != ''
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: terraform init
+        run: |
+          # Check if main.tf exists
+          if [ -f "main.tf" ]; then
+            terraform init
+          else
+            echo "Warning: main.tf not found in ${{ steps.tf-dir.outputs.tf_dir }}"
+            echo "Available files:"
+            ls -la
+            echo "Skipping terraform init"
+          fi
       
       - name: Get Workload Identity Provider and Service Account
         id: identity
