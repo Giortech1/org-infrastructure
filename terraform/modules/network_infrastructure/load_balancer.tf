@@ -25,7 +25,7 @@ resource "google_compute_backend_service" "backend" {
   name                  = "${local.service_name}-backend"
   project               = var.project_id
   load_balancing_scheme = "EXTERNAL_MANAGED"
-  
+
   # Only create backend configuration if NEG exists
   dynamic "backend" {
     for_each = var.skip_neg ? [] : [1]
@@ -69,7 +69,7 @@ resource "google_certificate_manager_certificate" "certificate" {
   name    = "${local.service_name}-cert"
   project = var.project_id
   scope   = "DEFAULT"
-  
+
   managed {
     domains = [local.full_domain, "www.${local.full_domain}"]
   }
@@ -78,13 +78,13 @@ resource "google_certificate_manager_certificate" "certificate" {
 
 # Create self-signed certificate for non-prod environments
 resource "google_compute_ssl_certificate" "self_signed" {
-  count       = var.environment != "prod" ? 1 : 0
+  count = var.environment != "prod" ? 1 : 0
   # Add a timestamp to make the name unique
   name        = "${local.service_name}-self-signed-cert-${formatdate("YYYYMMDDhhmmss", timestamp())}"
   project     = var.project_id
   private_key = file("${path.module}/cert/key.pem")
   certificate = file("${path.module}/cert/cert.pem")
-  
+
   lifecycle {
     create_before_destroy = true
     # Option 1: Ignore changes - not ideal but works for testing
@@ -104,12 +104,12 @@ resource "google_certificate_manager_certificate_map" "certificate_map" {
 
 # Create certificate map entry for prod
 resource "google_certificate_manager_certificate_map_entry" "map_entry" {
-  count              = var.environment == "prod" ? 1 : 0
-  name               = "${local.service_name}-map-entry"
-  project            = var.project_id
-  map                = google_certificate_manager_certificate_map.certificate_map[0].name
-  certificates       = [google_certificate_manager_certificate.certificate[0].id]
-  hostname           = local.full_domain
+  count        = var.environment == "prod" ? 1 : 0
+  name         = "${local.service_name}-map-entry"
+  project      = var.project_id
+  map          = google_certificate_manager_certificate_map.certificate_map[0].name
+  certificates = [google_certificate_manager_certificate.certificate[0].id]
+  hostname     = local.full_domain
 }
 
 # Create HTTPS target proxy
@@ -117,16 +117,16 @@ resource "google_compute_target_https_proxy" "https_proxy" {
   name    = "${local.service_name}-https-proxy"
   project = var.project_id
   url_map = google_compute_url_map.url_map.id
-  
+
   # Use certificate map for production environment
   certificate_map = var.environment == "prod" ? (
-    length(google_certificate_manager_certificate_map.certificate_map) > 0 ? 
+    length(google_certificate_manager_certificate_map.certificate_map) > 0 ?
     google_certificate_manager_certificate_map.certificate_map[0].id : null
   ) : null
-  
+
   # Use self-signed certificate for non-prod environments
   ssl_certificates = var.environment != "prod" ? (
-    length(google_compute_ssl_certificate.self_signed) > 0 ? 
+    length(google_compute_ssl_certificate.self_signed) > 0 ?
     [google_compute_ssl_certificate.self_signed[0].id] : null
   ) : null
 }

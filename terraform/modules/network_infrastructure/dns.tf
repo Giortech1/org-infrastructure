@@ -6,7 +6,7 @@ resource "google_dns_managed_zone" "dns_zone" {
   dns_name    = "${var.application}.${var.domain}."
   description = "DNS zone for ${var.application}.${var.domain}"
   project     = var.project_id
-  
+
 }
 
 # A record for the environment
