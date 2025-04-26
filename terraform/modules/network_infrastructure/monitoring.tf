@@ -6,21 +6,21 @@ resource "google_monitoring_uptime_check_config" "uptime_check" {
   display_name = "${local.service_name} Uptime Check"
   timeout      = "10s"
   period       = "300s"
-  
+
   http_check {
     path         = "/"
     port         = "443"
     use_ssl      = true
     validate_ssl = true
   }
-  
+
   monitored_resource {
     type = "uptime_url"
     labels = {
       host = local.full_domain
     }
   }
-  
+
   depends_on = [google_dns_record_set.a_record]
 }
 
@@ -29,7 +29,7 @@ resource "google_monitoring_alert_policy" "uptime_alert" {
   count        = var.enable_monitoring && var.environment == "prod" ? 1 : 0
   display_name = "${local.service_name} Uptime Alert"
   combiner     = "OR"
-  
+
   conditions {
     display_name = "Uptime Check Failed"
     condition_threshold {
@@ -37,7 +37,7 @@ resource "google_monitoring_alert_policy" "uptime_alert" {
       comparison      = "COMPARISON_LT"
       threshold_value = 1
       duration        = "60s"
-      
+
       aggregations {
         alignment_period     = "60s"
         per_series_aligner   = "ALIGN_NEXT_OLDER"
@@ -47,6 +47,6 @@ resource "google_monitoring_alert_policy" "uptime_alert" {
   }
 
   notification_channels = [] # Add notification channels if needed
-  
+
   depends_on = [google_monitoring_uptime_check_config.uptime_check]
 }

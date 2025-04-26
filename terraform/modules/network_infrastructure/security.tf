@@ -19,7 +19,7 @@ resource "google_compute_security_policy" "security_policy" {
     }
     description = "Default rule, higher priority overrides it"
   }
-  
+
   # XSS protection
   rule {
     action   = "deny(403)"
@@ -31,7 +31,7 @@ resource "google_compute_security_policy" "security_policy" {
     }
     description = "XSS protection"
   }
-  
+
   # SQL injection protection
   rule {
     action   = "deny(403)"
@@ -43,7 +43,7 @@ resource "google_compute_security_policy" "security_policy" {
     }
     description = "SQL injection protection"
   }
-  
+
   # Rate limiting to prevent DDoS
   rule {
     action   = "rate_based_ban"
@@ -55,17 +55,17 @@ resource "google_compute_security_policy" "security_policy" {
       }
     }
     description = "Rate limiting"
-    
+
     rate_limit_options {
       conform_action = "allow"
       exceed_action  = "deny(429)"
       enforce_on_key = "IP"
-      
+
       rate_limit_threshold {
         count        = 100
         interval_sec = 60
       }
-      
+
       ban_threshold {
         count        = 100
         interval_sec = 60
