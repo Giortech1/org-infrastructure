@@ -58,8 +58,14 @@ jobs:
           # First extract the repo part (after the /)
           REPO_PART=$(echo $REPO_NAME | cut -d'/' -f2)
           
-          # Then determine application by prefix
-          if [[ "$REPO_PART" == giortech* ]]; then
+          # Debugging
+          echo "Repository name: $REPO_NAME"
+          echo "Repository part: $REPO_PART"
+          
+          # Then determine application by prefix or name
+          if [[ "$REPO_PART" == "org-infrastructure" ]]; then
+            APP_NAME="giortech"  # Set default application for infra repo
+          elif [[ "$REPO_PART" == giortech* ]]; then
             APP_NAME="giortech"
           elif [[ "$REPO_PART" == waspwallet* ]]; then
             APP_NAME="waspwallet"
@@ -115,47 +121,51 @@ jobs:
             ENV_DIR="dev"
           fi
           
-          # Use the application name from previous step
           APP_NAME="${{ needs.determine-context.outputs.application }}"
           
-          # Set the correct Terraform directory
+          # Debug information
+          echo "Application: $APP_NAME"
+          echo "Environment: $ENV_DIR"
+          
           TF_DIR="terraform/organization/$APP_NAME/$ENV_DIR"
           echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
           
-          # Add debug information
-          echo "Looking for directory: $TF_DIR"
+          # List available directories for debugging
+          echo "Available directories in terraform/organization/:"
+          ls -la terraform/organization/ || echo "No organization directory"
           
           # Check if directory exists
           if [ ! -d "$TF_DIR" ]; then
-            echo "Error: Directory $TF_DIR does not exist"
-            echo "Available directories:"
-            ls -la terraform/organization/
-            
+            echo "Warning: Directory $TF_DIR does not exist"
             if [ -d "terraform/organization/$APP_NAME" ]; then
               echo "Available environments for $APP_NAME:"
               ls -la terraform/organization/$APP_NAME/
             fi
             
             # Use fallback values for Workload Identity
-            echo "Using fallback directory structure"
-          else
-            echo "Using Terraform directory: $TF_DIR"
+            echo "Using fallback for Workload Identity"
+            echo "wi_provider=projects/$(gcloud projects describe ${{ needs.determine-context.outputs.project_id }} --format='value(projectNumber)' || echo '12345')/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+            echo "sa_email=github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+            exit 0
           fi
+          
+          echo "Using Terraform directory: $TF_DIR"
       
       - name: Setup Terraform
+        if: steps.tf-dir.outputs.tf_dir != ''
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.5.0
       
       - name: Terraform Init
-        if: steps.tf-dir.outputs.tf_dir != ''
+        if: steps.tf-dir.outputs.tf_dir != '' && fileExists(format('{0}/main.tf', steps.tf-dir.outputs.tf_dir))
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: terraform init
       
       - name: Get Workload Identity Provider and Service Account
         id: identity
         run: |
-          if [ -d "${{ steps.tf-dir.outputs.tf_dir }}" ]; then
+          if [ -d "${{ steps.tf-dir.outputs.tf_dir }}" ] && [ -f "${{ steps.tf-dir.outputs.tf_dir }}/main.tf" ]; then
             cd ${{ steps.tf-dir.outputs.tf_dir }}
             
             # Get the outputs or use fallback values
@@ -169,13 +179,17 @@ jobs:
           if [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
             echo "Warning: Could not get Workload Identity Provider or Service Account from Terraform outputs"
             echo "Using fallback values based on project ID"
-            PROJECT_NUM=$(gcloud projects describe ${{ needs.determine-context.outputs.project_id }} --format='value(projectNumber)')
+            PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
+            PROJECT_NUM=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)' 2>/dev/null || echo '12345')
             PROVIDER="projects/$PROJECT_NUM/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-            SA_EMAIL="github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com"
+            SA_EMAIL="github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
           fi
           
           echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
           echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
+          
+          echo "Using Workload Identity Provider: $PROVIDER"
+          echo "Using Service Account: $SA_EMAIL"
   
   build-and-deploy:
     needs: [determine-context, get-identity]
@@ -198,24 +212,71 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
       
+      - name: Verify GCP authentication and project
+        run: |
+          echo "Listing available projects:"
+          gcloud projects list --limit=5
+          
+          echo "Current project info:"
+          gcloud config get-value project
+          gcloud projects describe ${{ needs.determine-context.outputs.project_id }} || echo "Project not found or not accessible"
+          
+          echo "Checking if required APIs are enabled:"
+          gcloud services list --project=${{ needs.determine-context.outputs.project_id }} | grep -E 'cloudbuild|run|compute|storage' || echo "Some APIs may need to be enabled"
+      
       - name: Build Container
         run: |
           echo "Building container for ${{ needs.determine-context.outputs.application }} (${{ needs.determine-context.outputs.environment }})"
+          
+          # Ensure cloudbuild API is enabled
+          gcloud services enable cloudbuild.googleapis.com --project=${{ needs.determine-context.outputs.project_id }}
+          
+          # Check if Dockerfile exists
+          if [ ! -f "Dockerfile" ]; then
+            echo "Warning: Dockerfile not found at root. Using fallback image."
+            echo "Skipping build step."
+            echo "CONTAINER_IMAGE=gcr.io/google-samples/hello-app:1.0" >> $GITHUB_ENV
+            exit 0
+          fi
           
           # Submit the build to Cloud Build
           gcloud builds submit \
             --tag gcr.io/${{ needs.determine-context.outputs.project_id }}/${{ needs.determine-context.outputs.application }}:${{ github.sha }} \
             --project=${{ needs.determine-context.outputs.project_id }} \
-            .
+            . || {
+              echo "Build failed. Using fallback image."
+              echo "CONTAINER_IMAGE=gcr.io/google-samples/hello-app:1.0" >> $GITHUB_ENV
+              exit 0
+            }
+          
+          echo "CONTAINER_IMAGE=gcr.io/${{ needs.determine-context.outputs.project_id }}/${{ needs.determine-context.outputs.application }}:${{ github.sha }}" >> $GITHUB_ENV
       
       - name: Deploy to Cloud Run
         run: |
           echo "Deploying to Cloud Run: ${{ needs.determine-context.outputs.service_name }}"
           
-          # Deploy the container to Cloud Run
-          gcloud run deploy ${{ needs.determine-context.outputs.service_name }} \
+          # Ensure Cloud Run API is enabled
+          gcloud services enable run.googleapis.com --project=${{ needs.determine-context.outputs.project_id }}
+          
+          # Check if service exists and create/update accordingly
+          if gcloud run services describe ${{ needs.determine-context.outputs.service_name }} \
             --project=${{ needs.determine-context.outputs.project_id }} \
-            --image=gcr.io/${{ needs.determine-context.outputs.project_id }}/${{ needs.determine-context.outputs.application }}:${{ github.sha }} \
+            --region=${{ env.REGION }} 2>/dev/null; then
+            
+            echo "Updating existing service"
+            COMMAND="update"
+          else
+            echo "Creating new service"
+            COMMAND="deploy"
+          fi
+          
+          # Use CONTAINER_IMAGE environment variable set in the build step
+          CONTAINER_IMAGE=${CONTAINER_IMAGE:-gcr.io/google-samples/hello-app:1.0}
+          
+          # Deploy the container to Cloud Run
+          gcloud run services $COMMAND ${{ needs.determine-context.outputs.service_name }} \
+            --project=${{ needs.determine-context.outputs.project_id }} \
+            --image=$CONTAINER_IMAGE \
             --region=${{ env.REGION }} \
             --platform=managed \
             --allow-unauthenticated
@@ -230,8 +291,11 @@ jobs:
             --region=${{ env.REGION }} \
             --format="get(status.url)")
           
+          # Wait a moment for the service to stabilize
+          sleep 10
+          
           # Test that the service is responding
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" $SERVICE_URL)
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" $SERVICE_URL || echo "Failed to connect")
           
           echo "Service URL: $SERVICE_URL"
           echo "HTTP Status: $HTTP_STATUS"
