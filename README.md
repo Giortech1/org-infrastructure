@@ -1,14 +1,16 @@
 # AcademyAxis.io Infrastructure
 
-This repository contains the Infrastructure as Code (IaC) for the AcademyAxis.io organization. It manages the GCP environment for three independent applications:
+This repository contains the Infrastructure as Code (IaC) for the AcademyAxis.io organization. We manage the GCP environments for three independent applications through a consistent, environment-based approach.
+
+## Applications
 
 1. **giortech** - Public-facing website
 2. **waspwallet** - Mobile application
-3. **AcademyAxis** - Mobile application and web platform
+3. **academyaxis** - Mobile application and web platform
 
 ## Infrastructure Architecture
 
-The infrastructure follows a multi-environment approach with isolated projects for each application and environment:
+Each application has isolated projects for dev, UAT, and production environments:
 
 ```
 Organization: AcademyAxis.io
@@ -28,6 +30,171 @@ Organization: AcademyAxis.io
         └── academyaxis-prod-project
 ```
 
+## Repository Structure
+
+```
+org-infrastructure/
+├── .github/workflows/           # GitHub Actions workflows
+│   ├── app-deploy.yml           # Generic application deployment
+│   ├── branch-deploy.yml        # Branch-based infrastructure deployment
+│   ├── network-deploy.yml       # Network infrastructure deployment
+│   ├── deploy-dev.yml           # Application-specific dev deployment
+│   ├── deploy-uat.yml           # Application-specific UAT deployment
+│   └── deploy-prod.yml          # Application-specific production deployment
+│
+├── scripts/                     # Utility scripts
+│   ├── domain-mapping.sh        # Script for mapping domains to services
+│   ├── setup-lb-dns.sh          # Script for setting up load balancer and DNS
+│   └── setup-workload-identity.sh # Script for setting up GitHub Actions auth
+│
+├── terraform/                   # Terraform configurations
+│   ├── modules/                 # Reusable Terraform modules
+│   │   ├── workload_identity/   # GitHub Actions authentication
+│   │   │   ├── main.tf
+│   │   │   ├── variables.tf
+│   │   │   └── outputs.tf
+│   │   │
+│   │   └── network_infrastructure/  # Network configuration
+│   │       ├── cert/           # SSL certificates for non-prod environments
+│   │       ├── dns.tf          # DNS configuration
+│   │       ├── load_balancer.tf # Load balancer configuration
+│   │       ├── main.tf         # Main configuration
+│   │       ├── monitoring.tf   # Monitoring configuration
+│   │       ├── outputs.tf      # Output variables
+│   │       ├── security.tf     # Cloud Armor WAF configuration
+│   │       └── variables.tf    # Input variables
+│   │
+│   └── organization/           # Organization-specific configurations
+│       ├── giortech/           # giortech application infrastructure
+│       │   ├── dev/            # Development environment
+│       │   ├── uat/            # UAT environment
+│       │   ├── prod/           # Production environment
+│       │   ├── main.tf         # Main Terraform configuration
+│       │   └── variables.tf    # Variable definitions
+│       │
+│       ├── waspwallet/         # waspwallet application infrastructure
+│       └── academyaxis/        # academyaxis application infrastructure
+```
+
+## Understanding Our Workflow Types
+
+### 1. Environment-Specific Workflows
+
+These workflows deploy applications to specific environments with pre-configured settings:
+
+- **deploy-dev.yml**: Deploys to development environment
+- **deploy-uat.yml**: Deploys to UAT environment
+- **deploy-prod.yml**: Deploys to production environment
+
+**When to use**: For application code deployments when you want to target a specific environment.
+
+Example: Deploying a new version of the giortech website to production.
+
+```yaml
+# This is handled by deploy-prod.yml
+name: Deploy to Production
+
+env:
+  PROJECT_ID: giortech-prod-project
+  REGION: us-central1
+  SERVICE_NAME: giortech-prod
+  # Pre-configured with the proper service account and identity provider
+```
+
+### 2. Generic Infrastructure Workflows
+
+These workflows handle infrastructure deployment with dynamic environment detection:
+
+- **app-deploy.yml**: Deploys applications to Cloud Run based on the branch or manual selection
+- **branch-deploy.yml**: Automatically deploys infrastructure when pushing to specific branches
+- **network-deploy.yml**: Manages network infrastructure (load balancers, DNS, certificates)
+
+**When to use**: For infrastructure deployments or when you need branch-based environment targeting.
+
+Example: Updating load balancer configuration for all environments.
+
+## Branch to Environment Mapping
+
+| Branch   | Environment | Project Suffix |
+|----------|-------------|----------------|
+| develop  | dev         | -dev-project   |
+| uat      | uat         | -uat-project   |
+| prod     | prod        | -prod-project  |
+
+## Deployment Workflows
+
+### 1. Deploying Application Code
+
+Choose the appropriate method based on your needs:
+
+#### Option 1: Branch-based deployment
+
+1. Make changes to your application code
+2. Push to the corresponding branch:
+   - `develop` → deploys to development
+   - `uat` → deploys to UAT
+   - `prod` → deploys to production
+
+The workflow will automatically detect the environment based on the branch.
+
+#### Option 2: Environment-specific workflow
+
+1. Go to the Actions tab in GitHub
+2. Select the appropriate deployment workflow:
+   - For development: Select "Deploy to Dev"
+   - For UAT: Select "Deploy to UAT"
+   - For production: Select "Deploy to Production"
+3. Click "Run workflow"
+4. Select the branch containing your code changes
+5. Click "Run workflow"
+
+### 2. Deploying Network Infrastructure
+
+Network infrastructure (load balancers, DNS, certificates) is managed separately from application code.
+
+1. Go to the Actions tab in GitHub
+2. Select "Network Infrastructure Deployment"
+3. Click "Run workflow"
+4. Select:
+   - Environment: (dev, uat, prod)
+   - Application: (giortech, waspwallet, academyaxis)
+   - Action: (plan, apply, destroy)
+5. Click "Run workflow"
+
+## Development Workflow
+
+1. Create a feature branch from `develop`
+2. Make your changes
+3. Push to your feature branch
+4. Create a pull request to merge into `develop`
+5. After testing in the development environment, create a pull request to merge to `uat`
+6. After UAT approval, create a pull request to merge to `prod`
+
+## Troubleshooting
+
+### Common Issues
+
+#### 1. Terraform Validation Errors
+
+If you encounter errors during Terraform validation, check:
+- Module paths are correct
+- Required APIs are enabled in your GCP project
+- Service account has necessary permissions
+
+#### 2. GitHub Actions Authentication Issues
+
+If the workflow fails to authenticate with GCP:
+- Check the Workload Identity Federation configuration
+- Verify the repository name and organization match what's configured in GCP
+- Ensure the service account has the necessary permissions
+
+#### 3. Deploy Workflow Failures
+
+If application deployment fails:
+- Check if the Dockerfile exists and is valid
+- Ensure Cloud Run API is enabled
+- Verify the service account has Cloud Run Admin role
+
 ## GCP Services Used
 
 - **Compute**: Cloud Run (fully managed, scales to zero)
@@ -38,209 +205,9 @@ Organization: AcademyAxis.io
 - **Monitoring**: Cloud Monitoring + Logging (basic tier)
 - **CI/CD**: GitHub Actions
 
-## Repository Structure
-
-```
-org-infrastructure/
-├── .github/
-│   └── workflows/           # GitHub Actions workflows for deployment
-│       ├── deploy.yml       # Main deployment workflow
-│       └── deploy-lb-dns.yml # Load balancer and DNS setup workflow
-│
-├── scripts/                 # Utility scripts
-│   ├── setup-lb-dns.sh      # Script for setting up load balancer and DNS
-│   └── setup-workload-identity.sh # Script for setting up GitHub Actions auth
-│
-├── terraform/               # Terraform configurations
-│   └── organization/
-│       ├── giortech/        # giortech application infrastructure
-│       │   ├── dev/         # Development environment
-│       │   ├── uat/         # UAT environment
-│       │   ├── prod/        # Production environment
-│       │   ├── main.tf      # Main Terraform configuration
-│       │   ├── variables.tf # Variable definitions
-│       │   └── modules/     # Reusable Terraform modules
-│       │       ├── networking/ # Networking configuration
-│       │       └── dns/     # DNS configuration
-│       │
-│       ├── waspwallet/      # waspwallet application infrastructure (similar structure)
-│       └── academyaxis/     # academyaxis application infrastructure (similar structure)
-│
-└── README.md                # This README file
-```
-
-## Deployment Strategy
-
-The infrastructure uses a branch-based deployment strategy:
-
-- `dev` branch → Development environment
-- `uat` branch → UAT environment
-- `main` branch → Production environment
-
-Each application has its own GitHub repository with CI/CD workflows that deploy to the corresponding environments.
-
-## Cost Management
-
-The infrastructure is designed to stay within a monthly budget of $300 USD total. Budget alerts are configured at multiple thresholds (50%, 75%, 90%, 100%) to ensure cost control.
-
-### Budget Allocation
-
-| Application | Environment | Budget (USD) |
-|-------------|------------|--------------|
-| giortech    | dev        | $50          |
-|             | uat        | $50          |
-|             | prod       | $100         |
-| waspwallet  | dev        | $25          |
-|             | uat        | $25          |
-|             | prod       | $50          |
-| academyaxis | dev        | $10          |
-|             | uat        | $15          |
-|             | prod       | $25          |
-| **Total**   |            | **$300**     |
-
-## Getting Started
-
-### Prerequisites
-
-- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install)
-- [Terraform](https://www.terraform.io/downloads.html) (v1.0.0+)
-- [GitHub CLI](https://cli.github.com/) (optional, for workflow management)
-
-### Initial Setup
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/giortech1/org-infrastructure.git
-   cd org-infrastructure
-   ```
-
-2. **Set up the GCP organization**:
-   Follow the [GCP organization setup guide](https://cloud.google.com/resource-manager/docs/creating-managing-organization) to create the AcademyAxis.io organization.
-
-3. **Create the folder structure**:
-   ```bash
-   gcloud resource-manager folders create --display-name="giortech-folder" --organization=ORGANIZATION_ID
-   gcloud resource-manager folders create --display-name="waspwallet-folder" --organization=ORGANIZATION_ID
-   gcloud resource-manager folders create --display-name="academyaxis-folder" --organization=ORGANIZATION_ID
-   ```
-
-4. **Create projects**:
-   ```bash
-   # Example for giortech-dev-project
-   gcloud projects create giortech-dev-project --folder=FOLDER_ID
-   gcloud billing projects link giortech-dev-project --billing-account=BILLING_ACCOUNT_ID
-   ```
-
-5. **Set up Workload Identity Federation for GitHub Actions**:
-   ```bash
-   ./scripts/setup-workload-identity.sh
-   ```
-
-### Deploying Infrastructure
-
-For each application and environment:
-
-1. **Initialize Terraform**:
-   ```bash
-   cd terraform/organization/giortech/dev
-   terraform init
-   ```
-
-2. **Apply Terraform configuration**:
-   ```bash
-   terraform apply
-   ```
-
-### Manual Deployment (if needed)
-
-You can manually trigger the deployment workflow from GitHub:
-
-1. Go to the Actions tab in the repository
-2. Select the "Deploy Application" workflow
-3. Click "Run workflow"
-4. Select the application and environment
-5. Click "Run workflow"
-
-## Troubleshooting
-
-### Common Issues
-
-#### Terraform Validation Errors
-
-If you encounter errors during `terraform validate` like:
-
-```
-Error: Missing resource instance key
-```
-
-This usually indicates that you're trying to reference a resource with a `count` attribute without specifying the index. Fix this by:
-
-1. If you intended to use `count`, reference the resource with an index:
-   ```terraform
-   resource "google_cloud_run_service" "app_service" {
-     count = 3
-     # ...
-   }
-   
-   resource "google_cloud_run_service_iam_member" "public_access" {
-     count    = 3
-     location = google_cloud_run_service.app_service[count.index].location
-     service  = google_cloud_run_service.app_service[count.index].name
-     # ...
-   }
-   ```
-
-2. If you didn't intend to use `count`, remove the attribute:
-   ```terraform
-   resource "google_cloud_run_service" "app_service" {
-     # no count attribute
-     # ...
-   }
-   ```
-
-#### GitHub Actions Authentication Issues
-
-If GitHub Actions fails to authenticate with GCP, check:
-
-1. The Workload Identity Federation configuration: 
-   ```bash
-   gcloud iam workload-identity-pools providers describe github-provider \
-     --project=PROJECT_ID \
-     --location=global \
-     --workload-identity-pool=github-pool
-   ```
-
-2. The service account permissions:
-   ```bash
-   gcloud projects get-iam-policy PROJECT_ID
-   ```
-
-## Maintenance and Monitoring
-
-### Budget Monitoring
-
-1. Set up email notifications for budget alerts
-2. Regularly check the [GCP Billing Reports](https://console.cloud.google.com/billing)
-3. Use the [GCP Cost Management dashboard](https://console.cloud.google.com/cost-management/dashboard) to identify cost outliers
-
-### Infrastructure Updates
-
-1. Always test changes in the dev environment first
-2. Use Terraform's plan feature to review changes before applying:
-   ```bash
-   terraform plan -out=tfplan
-   terraform apply tfplan
-   ```
-
-3. Maintain a change log for significant infrastructure updates
-
 ## Contributing
 
-1. Create a feature branch from `dev`
+1. Create a feature branch from `develop`
 2. Make your changes
-3. Open a pull request to merge your changes into `dev`
-4. After testing in the dev environment, merge to `uat` and then to `main`
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+3. Open a pull request to merge your changes into `develop`
+4. After testing in the dev environment, merge to `uat` and then to `prod`
