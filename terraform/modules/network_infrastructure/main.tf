@@ -34,5 +34,5 @@ data "google_cloud_run_service" "app_service" {
   project  = var.project_id
 
   # This allows the module to continue even if the service doesn't exist yet
- # depends_on = [google_project_service.networking_apis]
+  # depends_on = [google_project_service.networking_apis]
 }
