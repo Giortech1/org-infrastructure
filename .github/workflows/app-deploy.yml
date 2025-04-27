@@ -208,69 +208,69 @@ jobs:
             
             # Create main.tf
             cat > terraform/modules/workload_identity/main.tf << 'EOF'
-            # Workload Identity module for GitHub Actions
-            
-            # Data source to get project number
-            data "google_project" "project" {
-              project_id = var.project_id
-            }
-            
-            # Create Service Account for GitHub Actions if requested
-            resource "google_service_account" "github_actions_sa" {
-              count = var.create_service_account ? 1 : 0
-              
-              account_id   = "github-actions-sa"
-              display_name = "GitHub Actions Service Account"
-              project      = var.project_id
-              description  = "Service account for GitHub Actions"
-            }
-            EOF
+# Workload Identity module for GitHub Actions
+
+# Data source to get project number
+data "google_project" "project" {
+  project_id = var.project_id
+}
+
+# Create Service Account for GitHub Actions if requested
+resource "google_service_account" "github_actions_sa" {
+  count = var.create_service_account ? 1 : 0
+  
+  account_id   = "github-actions-sa"
+  display_name = "GitHub Actions Service Account"
+  project      = var.project_id
+  description  = "Service account for GitHub Actions"
+}
+EOF
             
             # Create variables.tf
             cat > terraform/modules/workload_identity/variables.tf << 'EOF'
-            variable "project_id" {
-              description = "The GCP project ID"
-              type        = string
-            }
-            
-            variable "github_org" {
-              description = "The GitHub organization name"
-              type        = string
-              default     = "Giortech1"
-            }
-            
-            variable "github_repo" {
-              description = "The GitHub repository name"
-              type        = string
-              default     = "org-infrastructure"
-            }
-            
-            variable "create_identity_pool" {
-              description = "Whether to create the workload identity pool"
-              type        = bool
-              default     = true
-            }
-            
-            variable "create_service_account" {
-              description = "Whether to create the service account"
-              type        = bool
-              default     = true
-            }
-            EOF
+variable "project_id" {
+  description = "The GCP project ID"
+  type        = string
+}
+
+variable "github_org" {
+  description = "The GitHub organization name"
+  type        = string
+  default     = "Giortech1"
+}
+
+variable "github_repo" {
+  description = "The GitHub repository name"
+  type        = string
+  default     = "org-infrastructure"
+}
+
+variable "create_identity_pool" {
+  description = "Whether to create the workload identity pool"
+  type        = bool
+  default     = true
+}
+
+variable "create_service_account" {
+  description = "Whether to create the service account"
+  type        = bool
+  default     = true
+}
+EOF
             
             # Create outputs.tf
             cat > terraform/modules/workload_identity/outputs.tf << 'EOF'
-            output "workload_identity_provider" {
-              value = "projects/${data.google_project.project.number}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-              description = "Workload Identity Provider resource name for GitHub Actions"
-            }
-            
-            output "service_account_email" {
-              value = var.create_service_account ? google_service_account.github_actions_sa[0].email : "github-actions-sa@${var.project_id}.iam.gserviceaccount.com"
-              description = "Service Account email for GitHub Actions"
-            }
-            EOF
-                fi
+output "workload_identity_provider" {
+  value = "projects/${data.google_project.project.number}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+  description = "Workload Identity Provider resource name for GitHub Actions"
+}
+
+output "service_account_email" {
+  value = var.create_service_account ? google_service_account.github_actions_sa[0].email : "github-actions-sa@${var.project_id}.iam.gserviceaccount.com"
+  description = "Service Account email for GitHub Actions"
+}
+EOF
+          fi
       
       - name: Terraform Init
         if: steps.tf-dir.outputs.tf_dir != ''
