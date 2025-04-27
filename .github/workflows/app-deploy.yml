@@ -306,7 +306,7 @@ jobs:
         id: identity
         run: |
           PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
-          
+              
           # Determine project number based on known project IDs
           if [[ "$PROJECT_ID" == "giortech-dev-project" ]]; then
             PROJECT_NUM="653675374627"
@@ -317,31 +317,40 @@ jobs:
           else
             PROJECT_NUM=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)' 2>/dev/null || echo '12345')
           fi
-          
+              
           # Try to get from Terraform if possible
-          if [ -d "${{ steps.tf-dir.outputs.tf_dir }}" ] && [ -f "${{ steps.tf-dir.outputs.tf_dir }}/main.tf" ]; then
-            cd ${{ steps.tf-dir.outputs.tf_dir }}
-            
-            # Get the outputs or use fallback values
-            PROVIDER=$(terraform output -raw workload_identity_provider 2>/dev/null || echo "")
-            SA_EMAIL=$(terraform output -raw service_account_email 2>/dev/null || echo "")
-          else
             PROVIDER=""
             SA_EMAIL=""
-          fi
-          
-          # Use hardcoded values if needed
-          if [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
-            echo "Using hardcoded Workload Identity values"
-            PROVIDER="projects/$PROJECT_NUM/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-            SA_EMAIL="github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
-          fi
-          
-          echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
-          echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
-          
-          echo "Using Workload Identity Provider: $PROVIDER"
-          echo "Using Service Account: $SA_EMAIL"
+              
+            if [ -d "${{ steps.tf-dir.outputs.tf_dir }}" ] && [ -f "${{ steps.tf-dir.outputs.tf_dir }}/main.tf" ]; then
+              echo "Trying to retrieve values from Terraform state..."
+              cd ${{ steps.tf-dir.outputs.tf_dir }}
+                
+              # Check if the terraform state has any outputs
+              terraform state list 2>/dev/null | grep -q "output" || echo "No outputs found in state"
+                
+              # Get the outputs using a safer approach that handles errors
+              PROVIDER=$(terraform output -raw workload_identity_provider 2>/dev/null || echo "")
+              SA_EMAIL=$(terraform output -raw service_account_email 2>/dev/null || echo "")
+                
+              # Check if values were retrieved
+              echo "Retrieved provider: ${PROVIDER:-(none)}"
+              echo "Retrieved service account: ${SA_EMAIL:-(none)}"
+            fi
+              
+            # Use hardcoded values if needed
+            if [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
+              echo "Using hardcoded Workload Identity values"
+              PROVIDER="projects/$PROJECT_NUM/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+              SA_EMAIL="github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
+            fi
+              
+            # Set outputs safely
+            echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
+            echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
+              
+            echo "Using Workload Identity Provider: $PROVIDER"
+            echo "Using Service Account: $SA_EMAIL"
   
   build-and-deploy:
     needs: [determine-context, get-identity]
