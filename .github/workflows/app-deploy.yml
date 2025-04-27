@@ -424,15 +424,15 @@ jobs:
       - name: Deploy to Cloud Run
         run: |
           echo "Deploying to Cloud Run: ${{ needs.determine-context.outputs.service_name }}"
-          
+            
           # Ensure Cloud Run API is enabled
           gcloud services enable run.googleapis.com --project=${{ needs.determine-context.outputs.project_id }}
-          
+            
           # Check if service exists and create/update accordingly
           if gcloud run services describe ${{ needs.determine-context.outputs.service_name }} \
             --project=${{ needs.determine-context.outputs.project_id }} \
             --region=${{ env.REGION }} 2>/dev/null; then
-            
+              
             echo "Updating existing service"
             # For update, don't use the --allow-unauthenticated flag
             gcloud run services update ${{ needs.determine-context.outputs.service_name }} \
@@ -440,23 +440,41 @@ jobs:
               --image=${CONTAINER_IMAGE:-gcr.io/google-samples/hello-app:1.0} \
               --region=${{ env.REGION }}
               
-            # Ensure the service remains publicly accessible after updates
-            echo "Ensuring service remains publicly accessible"
-            gcloud run services add-iam-policy-binding ${{ needs.determine-context.outputs.service_name }} \
-              --project=${{ needs.determine-context.outputs.project_id }} \
-              --region=${{ env.REGION }} \
-              --member="allUsers" \
-              --role="roles/run.invoker"
+            # Only try to make public if not in production and if explicitly requested
+            if [[ "${{ needs.determine-context.outputs.environment }}" != "prod" && "${{ github.event.inputs.make_public }}" == "true" ]]; then
+              echo "Attempting to make service publicly accessible..."
+              gcloud run services add-iam-policy-binding ${{ needs.determine-context.outputs.service_name }} \
+                --project=${{ needs.determine-context.outputs.project_id }} \
+                --region=${{ env.REGION }} \
+                --member="allUsers" \
+                --role="roles/run.invoker" || echo "Could not make service public - requires organization policy changes"
+            fi
           else
             echo "Creating new service"
-            # For deploy, we can use the --allow-unauthenticated flag
+            # Deploy without public access first
             gcloud run services deploy ${{ needs.determine-context.outputs.service_name }} \
               --project=${{ needs.determine-context.outputs.project_id }} \
               --image=${CONTAINER_IMAGE:-gcr.io/google-samples/hello-app:1.0} \
               --region=${{ env.REGION }} \
-              --platform=managed \
-              --allow-unauthenticated
+              --platform=managed
+              
+            # Then try to make public if needed - this is likely to fail due to org policy
+            if [[ "${{ needs.determine-context.outputs.environment }}" != "prod" ]]; then
+              echo "Attempting to make service publicly accessible..."
+              gcloud run services add-iam-policy-binding ${{ needs.determine-context.outputs.service_name }} \
+                --project=${{ needs.determine-context.outputs.project_id }} \
+                --region=${{ env.REGION }} \
+                --member="allUsers" \
+                --role="roles/run.invoker" || echo "Could not make service public - requires organization policy changes"
+            fi
           fi
+            
+          # Output the service URL regardless of whether it's public or not
+          SERVICE_URL=$(gcloud run services describe ${{ needs.determine-context.outputs.service_name }} \
+            --project=${{ needs.determine-context.outputs.project_id }} \
+            --region=${{ env.REGION }} \
+            --format="get(status.url)")
+          echo "Service URL: $SERVICE_URL"
       
       - name: Post-Deployment Tests
         run: |
