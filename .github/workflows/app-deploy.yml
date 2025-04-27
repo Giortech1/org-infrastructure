@@ -320,7 +320,7 @@ jobs:
           PROJECT_NUMBERS["giortech-dev-project"]="653675374627"
           PROJECT_NUMBERS["giortech-uat-project"]="28962750525" 
           PROJECT_NUMBERS["giortech-prod-project"]="371831144642"
-          
+
           # Comment out waspwallet and academyaxis numbers until they're available
           #PROJECT_NUMBERS["waspwallet-dev-project"]="waspwallet-dev-number"  # Replace with actual number
           #PROJECT_NUMBERS["waspwallet-uat-project"]="waspwallet-uat-number"  # Replace with actual number
@@ -434,22 +434,29 @@ jobs:
             --region=${{ env.REGION }} 2>/dev/null; then
             
             echo "Updating existing service"
-            COMMAND="update"
+            # For update, don't use the --allow-unauthenticated flag
+            gcloud run services update ${{ needs.determine-context.outputs.service_name }} \
+              --project=${{ needs.determine-context.outputs.project_id }} \
+              --image=${CONTAINER_IMAGE:-gcr.io/google-samples/hello-app:1.0} \
+              --region=${{ env.REGION }}
+              
+            # Ensure the service remains publicly accessible after updates
+            echo "Ensuring service remains publicly accessible"
+            gcloud run services add-iam-policy-binding ${{ needs.determine-context.outputs.service_name }} \
+              --project=${{ needs.determine-context.outputs.project_id }} \
+              --region=${{ env.REGION }} \
+              --member="allUsers" \
+              --role="roles/run.invoker"
           else
             echo "Creating new service"
-            COMMAND="deploy"
+            # For deploy, we can use the --allow-unauthenticated flag
+            gcloud run services deploy ${{ needs.determine-context.outputs.service_name }} \
+              --project=${{ needs.determine-context.outputs.project_id }} \
+              --image=${CONTAINER_IMAGE:-gcr.io/google-samples/hello-app:1.0} \
+              --region=${{ env.REGION }} \
+              --platform=managed \
+              --allow-unauthenticated
           fi
-          
-          # Use CONTAINER_IMAGE environment variable set in the build step
-          CONTAINER_IMAGE=${CONTAINER_IMAGE:-gcr.io/google-samples/hello-app:1.0}
-          
-          # Deploy the container to Cloud Run
-          gcloud run services $COMMAND ${{ needs.determine-context.outputs.service_name }} \
-            --project=${{ needs.determine-context.outputs.project_id }} \
-            --image=$CONTAINER_IMAGE \
-            --region=${{ env.REGION }} \
-            --platform=managed \
-            --allow-unauthenticated
       
       - name: Post-Deployment Tests
         run: |
