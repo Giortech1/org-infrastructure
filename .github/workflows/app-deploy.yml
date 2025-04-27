@@ -207,7 +207,7 @@ jobs:
             echo "Creating workload_identity module files..."
             
             # Create main.tf
-            cat > terraform/modules/workload_identity/main.tf << 'EOF'
+            cat > terraform/modules/workload_identity/main.tf << 'EOFMAIN'
 # Workload Identity module for GitHub Actions
 
 # Data source to get project number
@@ -224,10 +224,10 @@ resource "google_service_account" "github_actions_sa" {
   project      = var.project_id
   description  = "Service account for GitHub Actions"
 }
-EOF
+EOFMAIN
             
             # Create variables.tf
-            cat > terraform/modules/workload_identity/variables.tf << 'EOF'
+            cat > terraform/modules/workload_identity/variables.tf << 'EOFVARS'
 variable "project_id" {
   description = "The GCP project ID"
   type        = string
@@ -256,10 +256,10 @@ variable "create_service_account" {
   type        = bool
   default     = true
 }
-EOF
+EOFVARS
             
             # Create outputs.tf
-            cat > terraform/modules/workload_identity/outputs.tf << 'EOF'
+            cat > terraform/modules/workload_identity/outputs.tf << 'EOFOUTPUTS'
 output "workload_identity_provider" {
   value = "projects/${data.google_project.project.number}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
   description = "Workload Identity Provider resource name for GitHub Actions"
@@ -269,7 +269,7 @@ output "service_account_email" {
   value = var.create_service_account ? google_service_account.github_actions_sa[0].email : "github-actions-sa@${var.project_id}.iam.gserviceaccount.com"
   description = "Service Account email for GitHub Actions"
 }
-EOF
+EOFOUTPUTS
           fi
       
       - name: Terraform Init
@@ -280,21 +280,21 @@ EOF
           if [ -f "main.tf" ]; then
             # Create backend override file
             cat > backend.tf << EOF
-            terraform {
-              backend "gcs" {
-                bucket  = "academyaxis-terraform-state"
-                prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
-              }
-            }
-            EOF
+terraform {
+  backend "gcs" {
+    bucket  = "academyaxis-terraform-state"
+    prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
+  }
+}
+EOF
             
             # Create a provider file to ensure proper authentication
             cat > provider.tf << EOF
-            provider "google" {
-              project = "${{ needs.determine-context.outputs.project_id }}"
-              region  = "${{ env.REGION }}"
-            }
-            EOF
+provider "google" {
+  project = "${{ needs.determine-context.outputs.project_id }}"
+  region  = "${{ env.REGION }}"
+}
+EOF
             
             echo "Running terraform init..."
             # Initialize with explicit configuration
