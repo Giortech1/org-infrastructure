@@ -104,25 +104,39 @@ jobs:
           terraform_version: 1.5.0
       
       - name: Terraform Init
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: terraform init
-      
-      - name: Get Workload Identity Provider and Service Account
-        id: identity
+        if: steps.tf-dir.outputs.tf_dir != ''
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
-          PROVIDER=$(terraform output -raw workload_identity_provider 2>/dev/null || echo "")
-          SA_EMAIL=$(terraform output -raw service_account_email 2>/dev/null || echo "")
-          
-          if [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
-            echo "Warning: Could not get Workload Identity Provider or Service Account from Terraform outputs"
-            echo "Using fallback values based on project ID"
-            PROVIDER="projects/$(gcloud projects describe ${{ needs.determine-context.outputs.project_id }} --format='value(projectNumber)')/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-            SA_EMAIL="github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com"
-          fi
-          
-          echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
-          echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
+          # Check if main.tf exists
+          if [ -f "main.tf" ]; then
+            # Create temporary backend config file
+            cat > backend_config.hcl << EOF
+          bucket  = "academyaxis-terraform-state"
+          prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
+          EOF
+              
+              # Get service account impersonation token
+              TOKEN=$(gcloud auth print-access-token)
+              
+              # Create a .terraformrc file with credentials helper
+              cat > ~/.terraformrc << EOF
+          credentials_helper "gcloud" {
+            command = "gcloud"
+            args = ["auth", "application-default", "print-access-token"]
+          }
+          EOF
+              
+              # Set environment variables for Google provider authentication
+              export GOOGLE_OAUTH_ACCESS_TOKEN=$TOKEN
+              
+              echo "Running terraform init..."
+              terraform init -backend-config=backend_config.hcl -reconfigure
+            else
+              echo "Warning: main.tf not found in ${{ steps.tf-dir.outputs.tf_dir }}"
+              echo "Available files:"
+              ls -la
+              echo "Skipping terraform init"
+            fi
       
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
