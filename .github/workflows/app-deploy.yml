@@ -320,7 +320,8 @@ jobs:
           PROJECT_NUMBERS["giortech-dev-project"]="653675374627"
           PROJECT_NUMBERS["giortech-uat-project"]="28962750525" 
           PROJECT_NUMBERS["giortech-prod-project"]="371831144642"
-          /*
+          
+          # Comment out waspwallet and academyaxis numbers until they're available
           #PROJECT_NUMBERS["waspwallet-dev-project"]="waspwallet-dev-number"  # Replace with actual number
           #PROJECT_NUMBERS["waspwallet-uat-project"]="waspwallet-uat-number"  # Replace with actual number
           #PROJECT_NUMBERS["waspwallet-prod-project"]="waspwallet-prod-number"  # Replace with actual number
