@@ -306,51 +306,59 @@ jobs:
         id: identity
         run: |
           PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
+          APPLICATION="${{ needs.determine-context.outputs.application }}"
+          ENVIRONMENT="${{ needs.determine-context.outputs.environment }}"
+
+
+          echo "Working with project: $PROJECT_ID"
+          echo "Application: $APPLICATION"
+          echo "Environment: $ENVIRONMENT"
               
-          # Determine project number based on known project IDs
-          if [[ "$PROJECT_ID" == "giortech-dev-project" ]]; then
-            PROJECT_NUM="653675374627"
-          elif [[ "$PROJECT_ID" == "giortech-uat-project" ]]; then
-            PROJECT_NUM="28962750525"
-          elif [[ "$PROJECT_ID" == "giortech-prod-project" ]]; then
-            PROJECT_NUM="371831144642"
+
+          # Map of known project numbers
+          declare -A PROJECT_NUMBERS
+          PROJECT_NUMBERS["giortech-dev-project"]="653675374627"
+          PROJECT_NUMBERS["giortech-uat-project"]="28962750525" 
+          PROJECT_NUMBERS["giortech-prod-project"]="371831144642"
+          /*
+          #PROJECT_NUMBERS["waspwallet-dev-project"]="waspwallet-dev-number"  # Replace with actual number
+          #PROJECT_NUMBERS["waspwallet-uat-project"]="waspwallet-uat-number"  # Replace with actual number
+          #PROJECT_NUMBERS["waspwallet-prod-project"]="waspwallet-prod-number"  # Replace with actual number
+          #PROJECT_NUMBERS["academyaxis-dev-project"]="academyaxis-dev-number"  # Replace with actual number
+          #PROJECT_NUMBERS["academyaxis-uat-project"]="academyaxis-uat-number"  # Replace with actual number
+          #PROJECT_NUMBERS["academyaxis-prod-project"]="academyaxis-prod-number"  # Replace with actual number
+
+          # Get project number from the map or fetch it using gcloud
+          PROJECT_NUM="${PROJECT_NUMBERS[$PROJECT_ID]}"
+          if [[ -z "$PROJECT_NUM" ]]; then
+            echo "Project number not in predefined map, attempting to fetch it..."
+            PROJECT_NUM=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)' 2>/dev/null || echo '')
+      
+            if [[ -z "$PROJECT_NUM" ]]; then
+              echo "Warning: Could not determine project number for $PROJECT_ID"
+              PROJECT_NUM="unknown"
+            else
+              echo "Successfully retrieved project number: $PROJECT_NUM"
+            fi
           else
-            PROJECT_NUM=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)' 2>/dev/null || echo '12345')
+           echo "Using predefined project number: $PROJECT_NUM"
           fi
-              
-          # Try to get from Terraform if possible
-            PROVIDER=""
-            SA_EMAIL=""
-              
-            if [ -d "${{ steps.tf-dir.outputs.tf_dir }}" ] && [ -f "${{ steps.tf-dir.outputs.tf_dir }}/main.tf" ]; then
-              echo "Trying to retrieve values from Terraform state..."
-              cd ${{ steps.tf-dir.outputs.tf_dir }}
-                
-              # Check if the terraform state has any outputs
-              terraform state list 2>/dev/null | grep -q "output" || echo "No outputs found in state"
-                
-              # Get the outputs using a safer approach that handles errors
-              PROVIDER=$(terraform output -raw workload_identity_provider 2>/dev/null || echo "")
-              SA_EMAIL=$(terraform output -raw service_account_email 2>/dev/null || echo "")
-                
-              # Check if values were retrieved
-              echo "Retrieved provider: ${PROVIDER:-(none)}"
-              echo "Retrieved service account: ${SA_EMAIL:-(none)}"
-            fi
-              
-            # Use hardcoded values if needed
-            if [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
-              echo "Using hardcoded Workload Identity values"
-              PROVIDER="projects/$PROJECT_NUM/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-              SA_EMAIL="github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
-            fi
-              
-            # Set outputs safely
-            echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
-            echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
-              
-            echo "Using Workload Identity Provider: $PROVIDER"
-            echo "Using Service Account: $SA_EMAIL"
+    
+          # Skip terraform output attempts for now - use synthesized values
+          echo "Using synthesized Workload Identity values based on project info"
+          PROVIDER="projects/$PROJECT_NUM/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          SA_EMAIL="github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
+    
+          # Set outputs safely with validation
+          if [[ "$PROVIDER" == *"unknown"* ]]; then
+            echo "Warning: Using provider with unknown project number"
+          fi
+    
+          echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
+          echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
+    
+          echo "Using Workload Identity Provider: $PROVIDER"
+          echo "Using Service Account: $SA_EMAIL"
   
   build-and-deploy:
     needs: [determine-context, get-identity]
