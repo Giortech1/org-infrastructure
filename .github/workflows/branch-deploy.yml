@@ -221,10 +221,10 @@ jobs:
         env:
           GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: |
-          # Create backend config file
-          cat > backend.tf << "EOFBACKEND"
-          bucket  = "academyaxis-terraform-state"
-          prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
+          # Create a proper backend config file
+          cat > backend.hcl << "EOFBACKEND"
+          bucket = "academyaxis-terraform-state"
+          prefix = "giortech/dev"
           EOFBACKEND
           
           # Initialize terraform with the current authentication
