@@ -169,7 +169,7 @@ jobs:
             echo "Directory is empty, creating basic Terraform files..."
             
             # Create a basic main.tf file
-            cat > main.tf << 'EOF'
+            cat > main.tf << "EOFMAIN"
 terraform {
   required_providers {
     google = {
@@ -198,10 +198,10 @@ output "project_id" {
   value       = var.project_id
   description = "The GCP project ID"
 }
-EOF
+EOFMAIN
 
             # Create variables.tf
-            cat > variables.tf << EOF
+            cat > variables.tf << "EOFVARS"
 variable "project_id" {
   description = "The GCP project ID"
   type        = string
@@ -213,7 +213,7 @@ variable "region" {
   type        = string
   default     = "${{ env.REGION }}"
 }
-EOF
+EOFVARS
           fi
       
       - name: Terraform Init
@@ -222,14 +222,14 @@ EOF
           GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: |
           # Create backend config file
-          cat > backend.tf << EOF
+          cat > backend.tf << "EOFBACKEND"
 terraform {
   backend "gcs" {
     bucket  = "academyaxis-terraform-state"
     prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
   }
 }
-EOF
+EOFBACKEND
           
           # Initialize terraform with the current authentication
           terraform init -reconfigure
