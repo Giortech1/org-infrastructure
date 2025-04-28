@@ -228,12 +228,12 @@ jobs:
           environment = "${{ needs.determine-context.outputs.environment }}"
           EOFVARS
       
-          - name: Terraform Init
-          working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-          env:
-            GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
-          run: |
-            # Create backend config file
+      - name: Terraform Init
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        env:
+          GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: |
+          # Create backend config file
               cat > backend.hcl << "EOFBACKEND"
           bucket  = "academyaxis-terraform-state"
           prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
