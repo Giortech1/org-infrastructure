@@ -103,6 +103,45 @@ jobs:
         with:
           terraform_version: 1.5.0
       
+      - name: Get Workload Identity Provider and Service Account
+        id: identity
+        run: |
+          # Get project ID from previous step
+          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
+          
+          # Define a map of known project numbers
+          declare -A PROJECT_NUMBERS
+          PROJECT_NUMBERS["giortech-dev-project"]="653675374627"
+          PROJECT_NUMBERS["giortech-uat-project"]="28962750525"
+          PROJECT_NUMBERS["giortech-prod-project"]="371831144642"
+          # Add other project numbers as they become available
+          
+          # Get project number from the map or using gcloud
+          PROJECT_NUMBER="${PROJECT_NUMBERS[$PROJECT_ID]}"
+          if [ -z "$PROJECT_NUMBER" ]; then
+            echo "Project number not found in predefined map, fetching from gcloud..."
+            PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)' 2>/dev/null || echo "unknown")
+            
+            if [ "$PROJECT_NUMBER" == "unknown" ]; then
+              echo "Warning: Could not get project number using gcloud"
+            else
+              echo "Got project number from gcloud: $PROJECT_NUMBER"
+            fi
+          else
+            echo "Using predefined project number: $PROJECT_NUMBER"
+          fi
+          
+          # Construct identity values
+          PROVIDER="projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          SA_EMAIL="github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
+          
+          # Output the values
+          echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
+          echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
+          
+          echo "Using Workload Identity Provider: $PROVIDER"
+          echo "Using Service Account: $SA_EMAIL"
+      
       - name: Terraform Init
         if: steps.tf-dir.outputs.tf_dir != ''
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
@@ -114,29 +153,29 @@ jobs:
           bucket  = "academyaxis-terraform-state"
           prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
           EOF
-              
-              # Get service account impersonation token
-              TOKEN=$(gcloud auth print-access-token)
-              
-              # Create a .terraformrc file with credentials helper
-              cat > ~/.terraformrc << EOF
-          credentials_helper "gcloud" {
+            
+          # Get service account impersonation token
+            TOKEN=$(gcloud auth print-access-token)
+            
+            # Create a .terraformrc file with credentials helper
+            cat > ~/.terraformrc << EOF
+            credentials_helper "gcloud" {
             command = "gcloud"
             args = ["auth", "application-default", "print-access-token"]
           }
           EOF
-              
-              # Set environment variables for Google provider authentication
-              export GOOGLE_OAUTH_ACCESS_TOKEN=$TOKEN
-              
-              echo "Running terraform init..."
-              terraform init -backend-config=backend_config.hcl -reconfigure
-            else
-              echo "Warning: main.tf not found in ${{ steps.tf-dir.outputs.tf_dir }}"
-              echo "Available files:"
-              ls -la
-              echo "Skipping terraform init"
-            fi
+            
+            # Set environment variables for Google provider authentication
+            export GOOGLE_OAUTH_ACCESS_TOKEN=$TOKEN
+            
+            echo "Running terraform init..."
+            terraform init -backend-config=backend_config.hcl -reconfigure
+          else
+            echo "Warning: main.tf not found in ${{ steps.tf-dir.outputs.tf_dir }}"
+            echo "Available files:"
+            ls -la
+            echo "Skipping terraform init"
+          fi
       
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
