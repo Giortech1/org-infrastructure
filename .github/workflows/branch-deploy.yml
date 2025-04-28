@@ -202,13 +202,35 @@ jobs:
         with:
           workload_identity_provider: ${{ steps.identity.outputs.wi_provider }}
           service_account: ${{ steps.identity.outputs.sa_email }}
-      
+        
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
-      
-      - name: Run Infrastructure Deployment
+        
+      - name: Terraform Init
+        if: steps.tf-dir.outputs.tf_dir != ''
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
-          terraform apply -auto-approve
+          # Check if main.tf exists
+          if [ -f "main.tf" ]; then
+            # Create temporary backend config file
+            cat > backend_config.hcl << EOF
+          bucket  = "academyaxis-terraform-state"
+          prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
+          EOF
+              
+            # Now that we're authenticated, we can get a token
+            TOKEN=$(gcloud auth print-access-token)
+              
+            # Export the token for Terraform to use
+            export GOOGLE_OAUTH_ACCESS_TOKEN=$TOKEN
+              
+            echo "Running terraform init..."
+            terraform init -backend-config=backend_config.hcl -reconfigure
+          else
+            echo "Warning: main.tf not found in ${{ steps.tf-dir.outputs.tf_dir }}"
+            echo "Available files:"
+            ls -la
+            echo "Skipping terraform init"
+          fi
       
       # Removed the setup-lb-dns.sh call as we now handle networking separately
