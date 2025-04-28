@@ -223,16 +223,12 @@ jobs:
         run: |
           # Create backend config file
           cat > backend.tf << "EOFBACKEND"
-          terraform {
-          backend "gcs" {
           bucket  = "academyaxis-terraform-state"
           prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
-            }
-          }
           EOFBACKEND
           
           # Initialize terraform with the current authentication
-          terraform init -reconfigure
+          terraform init -backend-config=backend.hcl -reconfigure
       
       - name: Terraform Plan
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
