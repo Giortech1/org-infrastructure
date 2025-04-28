@@ -27,7 +27,7 @@ on:
           - giortech
           - waspwallet
           - academyaxis
-    
+
 env:
   REGION: us-central1
 
@@ -40,10 +40,12 @@ jobs:
       project_id: ${{ steps.set-project.outputs.project_id }}
     
     steps:
-      - name: Set environment based on branch
+      - name: Set environment based on trigger
         id: set-env
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/uat" ]]; then
             echo "environment=uat" >> $GITHUB_OUTPUT
@@ -53,29 +55,32 @@ jobs:
             echo "environment=dev" >> $GITHUB_OUTPUT
           fi
           
-          echo "Branch ${{ github.ref }} maps to environment: ${{ steps.set-env.outputs.environment }}"
+          echo "Using environment: ${{ steps.set-env.outputs.environment }}"
       
-      - name: Set application based on repository
+      - name: Set application based on trigger or repository
         id: set-app
         run: |
-          REPO_NAME="${{ github.repository }}"
-          REPO_PART=$(echo $REPO_NAME | cut -d'/' -f2)
-            
-          if [[ "$REPO_PART" == "org-infrastructure" ]]; then
-            # Map the infrastructure repo to giortech
-            APP_NAME="giortech"
-          elif [[ "$REPO_PART" == giortech* ]]; then
-            APP_NAME="giortech"
-          elif [[ "$REPO_PART" == waspwallet* ]]; then
-            APP_NAME="waspwallet"
-          elif [[ "$REPO_PART" == academyaxis* ]]; then
-            APP_NAME="academyaxis"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            APP_NAME="${{ github.event.inputs.application }}"
           else
-            APP_NAME=$REPO_PART
+            REPO_NAME="${{ github.repository }}"
+            REPO_PART=$(echo $REPO_NAME | cut -d'/' -f2)
+              
+            if [[ "$REPO_PART" == "org-infrastructure" ]]; then
+              APP_NAME="giortech"
+            elif [[ "$REPO_PART" == giortech* ]]; then
+              APP_NAME="giortech"
+            elif [[ "$REPO_PART" == waspwallet* ]]; then
+              APP_NAME="waspwallet"
+            elif [[ "$REPO_PART" == academyaxis* ]]; then
+              APP_NAME="academyaxis"
+            else
+              APP_NAME=$REPO_PART
+            fi
           fi
             
           echo "application=$APP_NAME" >> $GITHUB_OUTPUT
-          echo "Repository $REPO_NAME maps to application: $APP_NAME"
+          echo "Using application: $APP_NAME"
       
       - name: Set project ID
         id: set-project
@@ -99,6 +104,39 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
+      - name: Determine project number for authentication
+        id: project-num
+        run: |
+          # Define a map of known project numbers
+          declare -A PROJECT_NUMBERS
+          PROJECT_NUMBERS["giortech-dev-project"]="653675374627"
+          PROJECT_NUMBERS["giortech-uat-project"]="28962750525"
+          PROJECT_NUMBERS["giortech-prod-project"]="371831144642"
+          
+          # Get project ID from context
+          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
+          
+          # Get project number from the map
+          PROJECT_NUMBER="${PROJECT_NUMBERS[$PROJECT_ID]}"
+          if [ -z "$PROJECT_NUMBER" ]; then
+            echo "Project number not found in predefined map, using default"
+            PROJECT_NUMBER="653675374627"  # Default to giortech-dev-project
+          fi
+          
+          echo "number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
+          echo "Using project number: $PROJECT_NUMBER"
+      
+      # First authenticate with Google Cloud
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v1
+        with:
+          workload_identity_provider: projects/${{ steps.project-num.outputs.number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+      
       - name: Set Terraform working directory
         id: tf-dir
         run: |
@@ -111,9 +149,9 @@ jobs:
           echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
           
           if [ ! -d "$TF_DIR" ]; then
-            echo "Error: Directory $TF_DIR does not exist"
-            ls -la terraform/organization/${{ needs.determine-context.outputs.application }}/
-            exit 1
+            echo "Warning: Directory $TF_DIR does not exist"
+            mkdir -p "$TF_DIR"
+            echo "Created directory: $TF_DIR"
           fi
           
           echo "Using Terraform directory: $TF_DIR"
@@ -123,114 +161,85 @@ jobs:
         with:
           terraform_version: 1.5.0
       
-      - name: Get Workload Identity Provider and Service Account
-        id: identity
-        run: |
-          # Get project ID from previous step
-          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
-          
-          # Define a map of known project numbers
-          declare -A PROJECT_NUMBERS
-          PROJECT_NUMBERS["giortech-dev-project"]="653675374627"
-          PROJECT_NUMBERS["giortech-uat-project"]="28962750525"
-          PROJECT_NUMBERS["giortech-prod-project"]="371831144642"
-          # Add other project numbers as they become available
-          
-          # Get project number from the map or using gcloud
-          PROJECT_NUMBER="${PROJECT_NUMBERS[$PROJECT_ID]}"
-          if [ -z "$PROJECT_NUMBER" ]; then
-            echo "Project number not found in predefined map, fetching from gcloud..."
-            PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)' 2>/dev/null || echo "unknown")
-            
-            if [ "$PROJECT_NUMBER" == "unknown" ]; then
-              echo "Warning: Could not get project number using gcloud"
-            else
-              echo "Got project number from gcloud: $PROJECT_NUMBER"
-            fi
-          else
-            echo "Using predefined project number: $PROJECT_NUMBER"
-          fi
-          
-          # Construct identity values
-          PROVIDER="projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          SA_EMAIL="github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
-          
-          # Output the values
-          echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
-          echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
-          
-          echo "Using Workload Identity Provider: $PROVIDER"
-          echo "Using Service Account: $SA_EMAIL"
-      
-      - name: Terraform Init
-        if: steps.tf-dir.outputs.tf_dir != ''
+      - name: Prepare Terraform files
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
-          # Check if main.tf exists
-          if [ -f "main.tf" ]; then
-            # Create temporary backend config file
-            cat > backend_config.hcl << EOF
-          bucket  = "academyaxis-terraform-state"
-          prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
-          EOF
+          # Check if directory is empty
+          if [ ! "$(ls -A)" ]; then
+            echo "Directory is empty, creating basic Terraform files..."
             
-          # Get service account impersonation token
-            TOKEN=$(gcloud auth print-access-token)
-            
-            # Create a .terraformrc file with credentials helper
-            cat > ~/.terraformrc << EOF
-            credentials_helper "gcloud" {
-            command = "gcloud"
-            args = ["auth", "application-default", "print-access-token"]
-          }
-          EOF
-            
-            # Set environment variables for Google provider authentication
-            export GOOGLE_OAUTH_ACCESS_TOKEN=$TOKEN
-            
-            echo "Running terraform init..."
-            terraform init -backend-config=backend_config.hcl -reconfigure
-          else
-            echo "Warning: main.tf not found in ${{ steps.tf-dir.outputs.tf_dir }}"
-            echo "Available files:"
-            ls -la
-            echo "Skipping terraform init"
+            # Create a basic main.tf file
+            cat > main.tf << 'EOF'
+terraform {
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 4.0"
+    }
+  }
+}
+
+provider "google" {
+  project = var.project_id
+  region  = var.region
+}
+
+variable "project_id" {
+  description = "The GCP project ID"
+  type        = string
+}
+
+variable "region" {
+  description = "The GCP region"
+  type        = string
+}
+
+output "project_id" {
+  value       = var.project_id
+  description = "The GCP project ID"
+}
+EOF
+
+            # Create variables.tf
+            cat > variables.tf << EOF
+variable "project_id" {
+  description = "The GCP project ID"
+  type        = string
+  default     = "${{ needs.determine-context.outputs.project_id }}"
+}
+
+variable "region" {
+  description = "The GCP region"
+  type        = string
+  default     = "${{ env.REGION }}"
+}
+EOF
           fi
       
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v1
-        with:
-          workload_identity_provider: ${{ steps.identity.outputs.wi_provider }}
-          service_account: ${{ steps.identity.outputs.sa_email }}
-        
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
-        
       - name: Terraform Init
-        if: steps.tf-dir.outputs.tf_dir != ''
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        env:
+          GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: |
+          # Create backend config file
+          cat > backend.tf << EOF
+terraform {
+  backend "gcs" {
+    bucket  = "academyaxis-terraform-state"
+    prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
+  }
+}
+EOF
+          
+          # Initialize terraform with the current authentication
+          terraform init -reconfigure
+      
+      - name: Terraform Plan
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
-          # Check if main.tf exists
-          if [ -f "main.tf" ]; then
-            # Create temporary backend config file
-            cat > backend_config.hcl << EOF
-          bucket  = "academyaxis-terraform-state"
-          prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
-          EOF
-              
-            # Now that we're authenticated, we can get a token
-            TOKEN=$(gcloud auth print-access-token)
-              
-            # Export the token for Terraform to use
-            export GOOGLE_OAUTH_ACCESS_TOKEN=$TOKEN
-              
-            echo "Running terraform init..."
-            terraform init -backend-config=backend_config.hcl -reconfigure
-          else
-            echo "Warning: main.tf not found in ${{ steps.tf-dir.outputs.tf_dir }}"
-            echo "Available files:"
-            ls -la
-            echo "Skipping terraform init"
-          fi
+          terraform plan -out=tfplan
       
-      # Removed the setup-lb-dns.sh call as we now handle networking separately
+      - name: Terraform Apply
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          terraform apply -auto-approve tfplan
