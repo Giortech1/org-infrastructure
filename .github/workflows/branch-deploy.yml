@@ -7,7 +7,27 @@ on:
       - develop
       - uat
       - main
-
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy (dev, uat, prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - uat
+          - prod
+      application:
+        description: 'Application to deploy'
+        required: true
+        default: 'giortech'
+        type: choice
+        options:
+          - giortech
+          - waspwallet
+          - academyaxis
+    
 env:
   REGION: us-central1
 
