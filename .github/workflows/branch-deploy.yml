@@ -191,6 +191,10 @@ jobs:
             name          = "${var.project_id}-bucket"
             location      = var.region
             force_destroy = true
+
+
+            # Add uniform bucket-level access to comply with organization policy
+            uniform_bucket_level_access = true
           }
         
           # Variables
@@ -220,6 +224,13 @@ jobs:
             description = "Storage bucket name"
           }
           EOFMAIN
+
+              # Create a terraform.tfvars file with actual values
+              cat > terraform.tfvars << "EOFVARS"
+          project_id  = "giortech-dev-project"
+          region      = "us-central1"
+          environment = "dev"
+          EOFVARS
         
             # Create a terraform.tfvars file with actual values
               cat > terraform.tfvars << "EOFVARS"
