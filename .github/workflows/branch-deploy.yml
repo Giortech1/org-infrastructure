@@ -85,33 +85,75 @@ jobs:
           echo "application=$APP_NAME" >> $GITHUB_OUTPUT
           echo "Using application: $APP_NAME"
       
+      - name: Set project ID
+        id: set-project
+        run: |
+          APP="${{ steps.set-app.outputs.application }}"
+          ENV="${{ steps.set-env.outputs.environment }}"
+          
+          PROJECT_ID="${APP}-${ENV}-project"
+          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
+          echo "Using project ID: $PROJECT_ID"
+      
       - name: Set project number for authentication
         id: set-project-number
         run: |
-          PROJECT_ID=$(cat $GITHUB_OUTPUT | grep project_id | cut -d'=' -f2)
-            
-          # Map of known project numbers for authentication
-          # Use associative array with proper syntax
-          declare -A PROJECT_NUMBERS
-          PROJECT_NUMBERS["giortech-dev-project"]="653675374627"
-          PROJECT_NUMBERS["giortech-uat-project"]="28962750525"
-          PROJECT_NUMBERS["giortech-prod-project"]="371831144642"
-          # Add other project numbers as they become available
-          # PROJECT_NUMBERS["waspwallet-dev-project"]="XXXXXXXXX"
-          # PROJECT_NUMBERS["academyaxis-dev-project"]="XXXXXXXXX"
-            
-          # Use proper bracket syntax for associative arrays
-          PROJECT_NUMBER="${PROJECT_NUMBERS[$PROJECT_ID]}"
+          # Define direct mapping with simple variables instead of arrays
+          GIORTECH_DEV="653675374627"
+          GIORTECH_UAT="28962750525"
+          GIORTECH_PROD="371831144642"
+          
+          # Get project ID from previous step
+          PROJECT_ID="${{ steps.set-project.outputs.project_id }}"
+          echo "Checking project number for: $PROJECT_ID"
+          
+          # Use simple if conditions instead of arrays
+          if [[ "$PROJECT_ID" == "giortech-dev-project" ]]; then
+            PROJECT_NUMBER="$GIORTECH_DEV"
+          elif [[ "$PROJECT_ID" == "giortech-uat-project" ]]; then
+            PROJECT_NUMBER="$GIORTECH_UAT"
+          elif [[ "$PROJECT_ID" == "giortech-prod-project" ]]; then
+            PROJECT_NUMBER="$GIORTECH_PROD"
+          else
+            PROJECT_NUMBER=""
+          fi
+          
+          # Output result
           if [[ -z "$PROJECT_NUMBER" ]]; then
-            echo "Project number not found for $PROJECT_ID in predefined map"
+            echo "Project number not found for $PROJECT_ID in predefined mapping"
             echo "project_number=unknown" >> $GITHUB_OUTPUT
           else
             echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
             echo "Using project number: $PROJECT_NUMBER"
           fi
 
-  deploy-infrastructure:
+  get-identity:
     needs: determine-context
+    runs-on: ubuntu-latest
+    outputs:
+      wi_provider: ${{ steps.identity.outputs.wi_provider }}
+      sa_email: ${{ steps.identity.outputs.sa_email }}
+    
+    steps:
+      - name: Set Workload Identity values directly
+        id: identity
+        run: |
+          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
+          PROJECT_NUMBER="${{ needs.determine-context.outputs.project_number }}"
+          
+          if [[ -z "$PROJECT_NUMBER" || "$PROJECT_NUMBER" == "unknown" ]]; then
+            echo "Cannot determine project number. Check project mapping in workflow."
+            exit 1
+          fi
+          
+          echo "wi_provider=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+          echo "sa_email=github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          
+          echo "Workload Identity Provider: projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          echo "Service Account: github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
+
+  deploy-infrastructure:
+    needs: [determine-context, get-identity]
     runs-on: ubuntu-latest
     
     permissions:
@@ -122,19 +164,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Validate project number
-        if: needs.determine-context.outputs.project_number == 'unknown'
-        run: |
-          echo "Error: Project number not found for ${needs.determine-context.outputs.project_id}"
-          echo "Please add the project number to the workflow file or verify project exists."
-          exit 1
-      
       - name: Authenticate to Google Cloud
         id: auth
         uses: google-github-actions/auth@v1
         with:
-          workload_identity_provider: projects/${{ needs.determine-context.outputs.project_number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-          service_account: github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com
+          workload_identity_provider: ${{ needs.get-identity.outputs.wi_provider }}
+          service_account: ${{ needs.get-identity.outputs.sa_email }}
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
@@ -194,7 +229,7 @@ jobs:
             cp -f *.tf backup/ 2>/dev/null || true
               
             # Create a clean main.tf
-            cat > main.tf << "EOFMAIN"
+            cat > main.tf << 'EOFMAIN'
             terraform {
               required_providers {
                 google = {
@@ -250,11 +285,11 @@ jobs:
 
           # Create terraform.tfvars if it doesn't exist
           if [ ! -f "terraform.tfvars" ]; then
-            cat > terraform.tfvars << "EOFVARS"
+            cat > terraform.tfvars << EOF
             project_id  = "${{ needs.determine-context.outputs.project_id }}"
             region      = "${{ env.REGION }}"
             environment = "${{ needs.determine-context.outputs.environment }}"
-            EOFVARS
+            EOF
           fi
       
       - name: Terraform Init
@@ -263,10 +298,10 @@ jobs:
           GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: |
           # Create backend config file
-          cat > backend.hcl << "EOFBACKEND"
+          cat > backend.hcl << EOF
           bucket  = "academyaxis-terraform-state"
           prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
-          EOFBACKEND
+          EOF
             
           # Initialize with backend config
           terraform init -backend-config=backend.hcl -reconfigure || {
