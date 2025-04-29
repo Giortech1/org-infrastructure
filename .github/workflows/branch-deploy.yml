@@ -85,22 +85,13 @@ jobs:
           echo "application=$APP_NAME" >> $GITHUB_OUTPUT
           echo "Using application: $APP_NAME"
       
-      - name: Set project ID
-        id: set-project
-        run: |
-          APP=$(cat $GITHUB_OUTPUT | grep application | cut -d'=' -f2)
-          ENV=$(cat $GITHUB_OUTPUT | grep environment | cut -d'=' -f2)
-          
-          PROJECT_ID="${APP}-${ENV}-project"
-          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
-          echo "Using project ID: $PROJECT_ID"
-      
       - name: Set project number for authentication
         id: set-project-number
         run: |
           PROJECT_ID=$(cat $GITHUB_OUTPUT | grep project_id | cut -d'=' -f2)
-          
+            
           # Map of known project numbers for authentication
+          # Use associative array with proper syntax
           declare -A PROJECT_NUMBERS
           PROJECT_NUMBERS["giortech-dev-project"]="653675374627"
           PROJECT_NUMBERS["giortech-uat-project"]="28962750525"
@@ -108,7 +99,8 @@ jobs:
           # Add other project numbers as they become available
           # PROJECT_NUMBERS["waspwallet-dev-project"]="XXXXXXXXX"
           # PROJECT_NUMBERS["academyaxis-dev-project"]="XXXXXXXXX"
-          
+            
+          # Use proper bracket syntax for associative arrays
           PROJECT_NUMBER="${PROJECT_NUMBERS[$PROJECT_ID]}"
           if [[ -z "$PROJECT_NUMBER" ]]; then
             echo "Project number not found for $PROJECT_ID in predefined map"
