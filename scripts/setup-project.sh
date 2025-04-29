@@ -2,16 +2,42 @@
 # Setup script for consistent project configuration
 # Usage: ./setup-project.sh <project-id> <environment>
 
-set -e  # Exit on any error
+# First, check if we're in a directory with Terraform files
+if [ -f "main.tf" ] || [ -f "outputs.tf" ]; then
+  echo "Attempting to get Workload Identity from Terraform outputs..."
+  
+  # Try to get outputs but with better error handling
+  set +e  # Don't exit on error for these commands
+  PROVIDER=$(terraform output -raw workload_identity_provider 2>/dev/null)
+  PROVIDER_EXIT=$?
+  SA_EMAIL=$(terraform output -raw service_account_email 2>/dev/null)
+  SA_EXIT=$?
+  set -e  # Re-enable exit on error
+  
+  # Check if commands succeeded
+  if [ $PROVIDER_EXIT -ne 0 ] || [ $SA_EXIT -ne 0 ] || [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
+    echo "Warning: Could not get Workload Identity Provider or Service Account from Terraform outputs"
+    echo "Using direct lookup method instead"
+    
+    # Get project number directly
+    PROJECT_NUMBER=$(gcloud projects describe ${{ needs.determine-context.outputs.project_id }} --format='value(projectNumber)')
+    PROVIDER="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+    SA_EMAIL="github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com"
+  fi
+else
+  echo "Not in a Terraform directory, using direct lookup method"
+  
+  # Get project number directly
+  PROJECT_NUMBER=$(gcloud projects describe ${{ needs.determine-context.outputs.project_id }} --format='value(projectNumber)')
+  PROVIDER="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+  SA_EMAIL="github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com"
+fi
 
-PROJECT_ID=${1:-"giortech-dev-project"}
-ENVIRONMENT=${2:-"dev"}
-REGION=${3:-"us-central1"}
+echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
+echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
 
-echo "Setting up project $PROJECT_ID ($ENVIRONMENT)..."
-
-# Enable required APIs
-echo "Enabling required APIs..."
+echo "Using Workload Identity Provider: $PROVIDER"
+echo "Using Service Account: $SA_EMAIL"
 gcloud services enable \
   run.googleapis.com \
   cloudbuild.googleapis.com \
