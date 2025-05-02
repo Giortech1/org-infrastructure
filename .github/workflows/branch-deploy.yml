@@ -290,7 +290,6 @@ jobs:
             region      = "${{ env.REGION }}"
             environment = "${{ needs.determine-context.outputs.environment }}"
             EOF
-          fi
       
       - name: Terraform Init
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
