@@ -159,12 +159,12 @@ jobs:
             echo "Creating workload_identity module files..."
             
             # Create main.tf
-            cat > terraform/modules/workload_identity/main.tf << 'EOF'
+            cat > terraform/modules/workload_identity/main.tf << EOF
 # Workload Identity module for GitHub Actions
 
 # Data source to get project number
 data "google_project" "project" {
-  project_id = var.project_id
+ project_id = var.project_id
 }
 
 # Create Service Account for GitHub Actions if requested
