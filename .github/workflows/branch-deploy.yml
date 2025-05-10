@@ -1,4 +1,4 @@
-# .github/workflows/branch-deploy.yml
+# File: .github/workflows/branch-deploy.yml
 name: Branch-Based Deployment
 
 on:
@@ -28,18 +28,20 @@ on:
           - waspwallet
           - academyaxis
 
-env:
-  REGION: us-central1
-
 jobs:
   determine-context:
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.set-env.outputs.environment }}
       application: ${{ steps.set-app.outputs.application }}
-      project_id: ${{ steps.set-project.outputs.project_id }}
+      project_id: ${{ steps.load-config.outputs.project_id }}
+      project_number: ${{ steps.load-config.outputs.project_number }}
+      region: ${{ steps.load-config.outputs.region }}
     
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
       - name: Set environment based on trigger
         id: set-env
         run: |
@@ -54,8 +56,6 @@ jobs:
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
           fi
-          
-          echo "Using environment: ${{ steps.set-env.outputs.environment }}"
       
       - name: Set application based on trigger or repository
         id: set-app
@@ -80,17 +80,38 @@ jobs:
           fi
             
           echo "application=$APP_NAME" >> $GITHUB_OUTPUT
-          echo "Using application: $APP_NAME"
       
-      - name: Set project ID
-        id: set-project
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      
+      - name: Load configuration
+        id: load-config
         run: |
           APP="${{ steps.set-app.outputs.application }}"
           ENV="${{ steps.set-env.outputs.environment }}"
           
-          PROJECT_ID="${APP}-${ENV}-project"
+          if [ ! -f ".github/config/project-config.yml" ]; then
+            echo "::error::Configuration file not found: .github/config/project-config.yml"
+            exit 1
+          fi
+          
+          # Extract values from config file using yq
+          PROJECT_ID=$(yq e ".$APP.$ENV.project_id" .github/config/project-config.yml)
+          PROJECT_NUMBER=$(yq e ".$APP.$ENV.project_number" .github/config/project-config.yml)
+          REGION=$(yq e ".$APP.$ENV.region" .github/config/project-config.yml)
+          
+          # Set outputs
           echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
-          echo "Using project ID: $PROJECT_ID"
+          echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
+          echo "region=$REGION" >> $GITHUB_OUTPUT
+          
+          # Debug output
+          echo "Using configuration for $APP in $ENV environment:"
+          echo "  Project ID: $PROJECT_ID"
+          echo "  Project Number: $PROJECT_NUMBER"
+          echo "  Region: $REGION"
   
   deploy-infrastructure:
     needs: determine-context
@@ -104,34 +125,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Determine project number for authentication
-        id: project-num
-        run: |
-          # Define a map of known project numbers
-          declare -A PROJECT_NUMBERS
-          PROJECT_NUMBERS["giortech-dev-project"]="653675374627"
-          PROJECT_NUMBERS["giortech-uat-project"]="28962750525"
-          PROJECT_NUMBERS["giortech-prod-project"]="371831144642"
-          
-          # Get project ID from context
-          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
-          
-          # Get project number from the map
-          PROJECT_NUMBER="${PROJECT_NUMBERS[$PROJECT_ID]}"
-          if [ -z "$PROJECT_NUMBER" ]; then
-            echo "Project number not found in predefined map, using default"
-            PROJECT_NUMBER="653675374627"  # Default to giortech-dev-project
-          fi
-          
-          echo "number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
-          echo "Using project number: $PROJECT_NUMBER"
-      
-      # First authenticate with Google Cloud
+      # Authenticate with Google Cloud
       - name: Authenticate to Google Cloud
         id: auth
         uses: google-github-actions/auth@v1
         with:
-          workload_identity_provider: projects/${{ steps.project-num.outputs.number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          workload_identity_provider: projects/${{ needs.determine-context.outputs.project_number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
           service_account: github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com
       
       - name: Set up Cloud SDK
@@ -153,8 +152,6 @@ jobs:
             mkdir -p "$TF_DIR"
             echo "Created directory: $TF_DIR"
           fi
-          
-          echo "Using Terraform directory: $TF_DIR"
       
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
@@ -164,10 +161,6 @@ jobs:
       - name: Prepare Terraform Files
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
-          # Backup the existing files
-          mkdir -p backup
-          cp -f *.tf backup/ 2>/dev/null || true
-            
           # Create a clean main.tf without module references
           cat > main.tf << "EOFMAIN"
           terraform {
@@ -186,17 +179,14 @@ jobs:
             region  = var.region
           }
         
-           # Basic resources for testing
+          # Basic resources for testing
           resource "google_storage_bucket" "storage" {
             name          = "${var.project_id}-bucket"
             location      = var.region
             force_destroy = true
-
-
-            # Add uniform bucket-level access to comply with organization policy
             uniform_bucket_level_access = true
           }
-        
+          
           # Variables
           variable "project_id" {
             description = "The GCP project ID"
@@ -225,19 +215,12 @@ jobs:
           }
           EOFMAIN
 
-              # Create a terraform.tfvars file with actual values
-              cat > terraform.tfvars << "EOFVARS"
-          project_id  = "giortech-dev-project"
-          region      = "us-central1"
-          environment = "dev"
-          EOFVARS
-        
-            # Create a terraform.tfvars file with actual values
-              cat > terraform.tfvars << "EOFVARS"
+          # Create a terraform.tfvars file with values from config
+          cat > terraform.tfvars << EOF
           project_id  = "${{ needs.determine-context.outputs.project_id }}"
-          region      = "${{ env.REGION }}"
+          region      = "${{ needs.determine-context.outputs.region }}"
           environment = "${{ needs.determine-context.outputs.environment }}"
-          EOFVARS
+          EOF
       
       - name: Terraform Init
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
@@ -245,13 +228,13 @@ jobs:
           GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: |
           # Create backend config file
-              cat > backend.hcl << "EOFBACKEND"
+          cat > backend.hcl << EOF
           bucket  = "academyaxis-terraform-state"
           prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
-          EOFBACKEND
+          EOF
             
-            # Initialize with backend config
-            terraform init -backend-config=backend.hcl -reconfigure
+          # Initialize with backend config
+          terraform init -backend-config=backend.hcl -reconfigure
       
       - name: Terraform Plan
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}

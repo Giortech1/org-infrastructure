@@ -1,0 +1,88 @@
+# File: .github/config/project-config.yml
+
+giortech:
+    dev:
+      project_id: "giortech-dev-project"
+      project_number: "653675374627"
+      region: "us-central1"
+      service_name: "giortech-dev"
+      min_instances: 0
+      max_instances: 5
+      memory: "512Mi"
+      cpu: 1
+    uat:
+      project_id: "giortech-uat-project"
+      project_number: "28962750525"
+      region: "us-central1"
+      service_name: "giortech-uat"
+      min_instances: 0
+      max_instances: 10
+      memory: "512Mi"
+      cpu: 1
+    prod:
+      project_id: "giortech-prod-project"
+      project_number: "371831144642"
+      region: "us-central1"
+      service_name: "giortech-prod"
+      min_instances: 1
+      max_instances: 20
+      memory: "1Gi"
+      cpu: 2
+      
+waspwallet:
+    dev:
+      project_id: "waspwallet-dev-project"
+      project_number: "260301647000"  
+      region: "us-central1"
+      service_name: "waspwallet-dev"
+      min_instances: 0
+      max_instances: 5
+      memory: "512Mi"
+      cpu: 1
+    uat:
+      project_id: "waspwallet-uat-project"
+      project_number: "875164789138" 
+      region: "us-central1"
+      service_name: "waspwallet-uat"
+      min_instances: 0
+      max_instances: 10
+      memory: "512Mi"
+      cpu: 1
+    prod:
+      project_id: "waspwallet-prod-project"
+      project_number: "142392555937"  
+      region: "us-central1"
+      service_name: "waspwallet-prod"
+      min_instances: 1
+      max_instances: 20
+      memory: "1Gi"
+      cpu: 2
+   
+ academyaxis:
+    dev:
+      project_id: "academyaxis-dev-project"
+      project_number: "1052274887859"  
+      region: "us-central1"
+      service_name: "academyaxis-dev"
+      min_instances: 0
+      max_instances: 5
+      memory: "512Mi"
+      cpu: 1
+    uat:
+      project_id: "academyaxis-uat-project"
+      project_number: "415071431590" 
+      region: "us-central1"
+      service_name: "academyaxis-uat"
+      min_instances: 0
+      max_instances: 10
+      memory: "512Mi"
+      cpu: 1
+    prod:
+      project_id: "academyaxis-prod-project"
+      project_number: "552816176477" 
+      region: "us-central1"
+      service_name: "academyaxis-prod"
+      min_instances: 1
+      max_instances: 20
+      memory: "1Gi"
+      cpu: 2
