@@ -25,3 +25,5 @@ terraform.rc
 
 # Ignore provider binary files
 **/terraform-provider-*
+
+terraform/modules/network_infrastructure/cert/*.pem
