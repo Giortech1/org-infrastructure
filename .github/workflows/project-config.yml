@@ -73,8 +73,8 @@ waspwallet:
       project_number: "415071431590" 
       region: "us-central1"
       service_name: "academyaxis-uat"
-      min_instances: 0
-      max_instances: 10
+      min_instances: 1
+      max_instances: 5
       memory: "512Mi"
       cpu: 1
     prod:
