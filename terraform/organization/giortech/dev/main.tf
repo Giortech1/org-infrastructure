@@ -15,19 +15,32 @@ terraform {
 # Include the parent module
 module "giortech" {
   source = "../"
+<<<<<<< HEAD
 
+=======
+  
+>>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
   # Pass the variables specific to dev environment
   project_id         = "giortech-dev-project"
   environment        = "dev"
   region             = "us-central1"
   billing_account_id = "0141E4-398D5E-91A063"
   budget_amount      = 50
+<<<<<<< HEAD
 
   # Additional variables to handle existing resources
   create_identity_pool   = false
   create_service_account = false
   deploy_cloud_run       = false
   create_budget          = false
+=======
+  
+  # Additional variables to handle existing resources
+  create_identity_pool = false
+  create_service_account = false
+  deploy_cloud_run = false
+  create_budget = false
+>>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
 }
 
 # Output the Workload Identity Provider and Service Account
