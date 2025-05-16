@@ -326,6 +326,9 @@ EOF
           if [ -d "${{ steps.tf-dir.outputs.tf_dir }}" ] && [ -f "${{ steps.tf-dir.outputs.tf_dir }}/main.tf" ]; then
             cd ${{ steps.tf-dir.outputs.tf_dir }}
             
+            # Run terraform apply to ensure outputs are available
+            terraform apply -auto-approve
+            
             # Get the outputs or use fallback values
             PROVIDER=$(terraform output -raw workload_identity_provider 2>/dev/null || echo "")
             SA_EMAIL=$(terraform output -raw service_account_email 2>/dev/null || echo "")
