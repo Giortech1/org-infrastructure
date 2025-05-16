@@ -197,7 +197,7 @@ jobs:
           # Check if main.tf exists
           if [ -f "main.tf" ]; then
             # Create backend override file
-            cat > backend.tf << EOF
+cat > backend.tf <<EOF
 terraform {
   backend "gcs" {
     bucket  = "academyaxis-terraform-state"
@@ -205,15 +205,15 @@ terraform {
   }
 }
 EOF
-            
-            # Create a provider file to ensure proper authentication
-            cat > provider.tf << EOF
+
+# Create a provider file to ensure proper authentication
+cat > provider.tf <<EOF
 provider "google" {
   project = "${{ needs.determine-context.outputs.project_id }}"
   region  = "${{ env.REGION }}"
 }
 EOF
-            
+
             echo "Running terraform init..."
             # Initialize with explicit configuration
             terraform init -reconfigure
