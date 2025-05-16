@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-# File: .github/workflows/branch-deploy.yml
-=======
 # .github/workflows/branch-deploy.yml
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
 name: Branch-Based Deployment
 
 on:
@@ -11,32 +7,9 @@ on:
       - develop
       - uat
       - main
-<<<<<<< HEAD
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy (dev, uat, prod)'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-          - dev
-          - uat
-          - prod
-      application:
-        description: 'Application to deploy'
-        required: true
-        default: 'giortech'
-        type: choice
-        options:
-          - giortech
-          - waspwallet
-          - academyaxis
-=======
 
 env:
   REGION: us-central1
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
 
 jobs:
   determine-context:
@@ -44,22 +17,6 @@ jobs:
     outputs:
       environment: ${{ steps.set-env.outputs.environment }}
       application: ${{ steps.set-app.outputs.application }}
-<<<<<<< HEAD
-      project_id: ${{ steps.load-config.outputs.project_id }}
-      project_number: ${{ steps.load-config.outputs.project_number }}
-      region: ${{ steps.load-config.outputs.region }}
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Set environment based on trigger
-        id: set-env
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-=======
       project_id: ${{ steps.set-project.outputs.project_id }}
     
     steps:
@@ -67,7 +24,6 @@ jobs:
         id: set-env
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
             echo "environment=prod" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/uat" ]]; then
             echo "environment=uat" >> $GITHUB_OUTPUT
@@ -76,40 +32,6 @@ jobs:
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
           fi
-<<<<<<< HEAD
-      
-      - name: Set application based on trigger or repository
-        id: set-app
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            APP_NAME="${{ github.event.inputs.application }}"
-          else
-            REPO_NAME="${{ github.repository }}"
-            REPO_PART=$(echo $REPO_NAME | cut -d'/' -f2)
-              
-            if [[ "$REPO_PART" == "org-infrastructure" ]]; then
-              APP_NAME="giortech"
-            elif [[ "$REPO_PART" == giortech* ]]; then
-              APP_NAME="giortech"
-            elif [[ "$REPO_PART" == waspwallet* ]]; then
-              APP_NAME="waspwallet"
-            elif [[ "$REPO_PART" == academyaxis* ]]; then
-              APP_NAME="academyaxis"
-            else
-              APP_NAME=$REPO_PART
-            fi
-          fi
-            
-          echo "application=$APP_NAME" >> $GITHUB_OUTPUT
-      
-      - name: Install yq
-        run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-      
-      - name: Load configuration
-        id: load-config
-=======
           
           echo "Branch ${{ github.ref }} maps to environment: ${{ steps.set-env.outputs.environment }}"
       
@@ -137,37 +59,13 @@ jobs:
       
       - name: Set project ID
         id: set-project
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
         run: |
           APP="${{ steps.set-app.outputs.application }}"
           ENV="${{ steps.set-env.outputs.environment }}"
           
-<<<<<<< HEAD
-          if [ ! -f ".github/config/project-config.yml" ]; then
-            echo "::error::Configuration file not found: .github/config/project-config.yml"
-            exit 1
-          fi
-          
-          # Extract values from config file using yq
-          PROJECT_ID=$(yq e ".$APP.$ENV.project_id" .github/config/project-config.yml)
-          PROJECT_NUMBER=$(yq e ".$APP.$ENV.project_number" .github/config/project-config.yml)
-          REGION=$(yq e ".$APP.$ENV.region" .github/config/project-config.yml)
-          
-          # Set outputs
-          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
-          echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
-          echo "region=$REGION" >> $GITHUB_OUTPUT
-          
-          # Debug output
-          echo "Using configuration for $APP in $ENV environment:"
-          echo "  Project ID: $PROJECT_ID"
-          echo "  Project Number: $PROJECT_NUMBER"
-          echo "  Region: $REGION"
-=======
           PROJECT_ID="${APP}-${ENV}-project"
           echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
           echo "Using project ID: $PROJECT_ID"
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
   
   deploy-infrastructure:
     needs: determine-context
@@ -181,20 +79,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-<<<<<<< HEAD
-      # Authenticate with Google Cloud
-      - name: Authenticate to Google Cloud
-        id: auth
-        uses: google-github-actions/auth@v1
-        with:
-          workload_identity_provider: projects/${{ needs.determine-context.outputs.project_number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-          service_account: github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com
-      
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
-      
-=======
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
       - name: Set Terraform working directory
         id: tf-dir
         run: |
@@ -207,114 +91,18 @@ jobs:
           echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
           
           if [ ! -d "$TF_DIR" ]; then
-<<<<<<< HEAD
-            echo "Warning: Directory $TF_DIR does not exist"
-            mkdir -p "$TF_DIR"
-            echo "Created directory: $TF_DIR"
-          fi
-=======
             echo "Error: Directory $TF_DIR does not exist"
             ls -la terraform/organization/${{ needs.determine-context.outputs.application }}/
             exit 1
           fi
           
           echo "Using Terraform directory: $TF_DIR"
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
       
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.5.0
       
-<<<<<<< HEAD
-      - name: Prepare Terraform Files
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: |
-          # Create a clean main.tf without module references
-          cat > main.tf << "EOFMAIN"
-          terraform {
-            required_providers {
-              google = {
-                source  = "hashicorp/google"
-                version = "~> 4.0"
-              }
-            }
-          
-            backend "gcs" {}
-          }
-        
-          provider "google" {
-            project = var.project_id
-            region  = var.region
-          }
-        
-          # Basic resources for testing
-          resource "google_storage_bucket" "storage" {
-            name          = "${var.project_id}-bucket"
-            location      = var.region
-            force_destroy = true
-            uniform_bucket_level_access = true
-          }
-          
-          # Variables
-          variable "project_id" {
-            description = "The GCP project ID"
-            type        = string
-          }
-        
-          variable "region" {
-            description = "The GCP region"
-            type        = string
-          }
-        
-          variable "environment" {
-            description = "Environment (dev, uat, prod)"
-            type        = string
-          }
-        
-          # Outputs
-          output "project_id" {
-            value       = var.project_id
-            description = "The GCP project ID"
-          }
-        
-          output "bucket_name" {
-            value       = google_storage_bucket.storage.name
-            description = "Storage bucket name"
-          }
-          EOFMAIN
-
-          # Create a terraform.tfvars file with values from config
-          cat > terraform.tfvars << EOF
-          project_id  = "${{ needs.determine-context.outputs.project_id }}"
-          region      = "${{ needs.determine-context.outputs.region }}"
-          environment = "${{ needs.determine-context.outputs.environment }}"
-          EOF
-      
-      - name: Terraform Init
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        env:
-          GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
-        run: |
-          # Create backend config file
-          cat > backend.hcl << EOF
-          bucket  = "academyaxis-terraform-state"
-          prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
-          EOF
-            
-          # Initialize with backend config
-          terraform init -backend-config=backend.hcl -reconfigure
-      
-      - name: Terraform Plan
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: |
-          terraform plan -out=tfplan
-      
-      - name: Terraform Apply
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: |
-          terraform apply -auto-approve tfplan
-=======
       - name: Terraform Init
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: terraform init
@@ -351,4 +139,3 @@ jobs:
           terraform apply -auto-approve
       
       # Removed the setup-lb-dns.sh call as we now handle networking separately
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
