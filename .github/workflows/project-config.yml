@@ -1,5 +1,4 @@
 # File: .github/config/project-config.yml
-
 giortech:
     dev:
       project_id: "giortech-dev-project"
@@ -57,7 +56,7 @@ waspwallet:
       max_instances: 20
       memory: "1Gi"
       cpu: 2
-   
+ 
  academyaxis:
     dev:
       project_id: "academyaxis-dev-project"
