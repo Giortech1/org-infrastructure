@@ -158,27 +158,24 @@ jobs:
       - name: Set Terraform working directory
         id: tf-dir
         run: |
-          # Map environment name to directory name
           ENV_DIR="${{ needs.determine-context.outputs.environment }}"
           if [ "$ENV_DIR" = "develop" ]; then
             ENV_DIR="dev"
           fi
-          
-          APP_NAME="${{ needs.determine-context.outputs.application }}"
-          
-          TF_DIR="terraform/organization/$APP_NAME/$ENV_DIR"
-          
-          # Ensure directory exists
-          mkdir -p $TF_DIR
-          echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
-          
-          # Check if directory exists
+
+          TF_DIR="terraform/organization/${{ needs.determine-context.outputs.application }}/$ENV_DIR"
+          TF_DIR=$(echo "$TF_DIR" | xargs)  # Trim whitespace
+
+          echo "Resolving TF_DIR to: '$TF_DIR'"
+          ls -la "$(dirname "$TF_DIR")" || echo "Parent directory does not exist"
+          ls -la "$TF_DIR" || echo "Target directory does not exist"
+
           if [ ! -d "$TF_DIR" ]; then
             echo "Error: Directory $TF_DIR does not exist"
-            ls -la terraform/organization/$APP_NAME/
             exit 1
           fi
-          
+
+          echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
           echo "Using Terraform directory: $TF_DIR"
       
       - name: Setup Terraform
@@ -198,7 +195,7 @@ jobs:
             echo "Creating workload_identity module files..."
             
             # Create main.tf
-            cat << 'EOFMAIN' > terraform/modules/workload_identity/main.tf
+            cat > terraform/modules/workload_identity/main.tf << 'EOFMAIN'
 # Workload Identity module for GitHub Actions
 
 # Data source to get project number
@@ -218,7 +215,7 @@ resource "google_service_account" "github_actions_sa" {
 EOFMAIN
             
             # Create variables.tf
-            cat << 'EOFVARS' > terraform/modules/workload_identity/variables.tf
+            cat > terraform/modules/workload_identity/variables.tf << 'EOFVARS'
 variable "project_id" {
   description = "The GCP project ID"
   type        = string
@@ -250,7 +247,7 @@ variable "create_service_account" {
 EOFVARS
             
             # Create outputs.tf
-            cat << 'EOFOUTPUTS' > terraform/modules/workload_identity/outputs.tf
+            cat > terraform/modules/workload_identity/outputs.tf << 'EOFOUTPUTS'
 output "workload_identity_provider" {
   value = "projects/${data.google_project.project.number}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
   description = "Workload Identity Provider resource name for GitHub Actions"
