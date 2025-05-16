@@ -6,10 +6,6 @@ terraform {
       version = "~> 4.0"
     }
   }
-  backend "gcs" {
-    bucket = "academyaxis-terraform-state"
-    prefix = "giortech/dev"
-  }
 }
 
 # Include the parent module
