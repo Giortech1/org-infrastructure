@@ -1,15 +1,8 @@
-<<<<<<< HEAD
-# File: .github/workflows/network-deploy.yml
-name: Network Infrastructure Deployment
-
-on:
-=======
 # .github/workflows/network-deploy.yml
 name: Network Infrastructure Deployment
 
 on:
   # Automated triggers
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
   push:
     branches:
       - develop
@@ -19,10 +12,7 @@ on:
       - 'terraform/modules/network_infrastructure/**'
       - '.github/workflows/network-deploy.yml'
   
-<<<<<<< HEAD
-=======
   # Manual trigger option
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
   workflow_dispatch:
     inputs:
       environment:
@@ -53,36 +43,20 @@ on:
           - apply
           - destroy
 
-<<<<<<< HEAD
-=======
 env:
   REGION: us-central1
 
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
 jobs:
   determine-context:
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.set-env.outputs.environment }}
       application: ${{ steps.set-app.outputs.application }}
-<<<<<<< HEAD
-      project_id: ${{ steps.load-config.outputs.project_id }}
-      project_number: ${{ steps.load-config.outputs.project_number }}
-      service_name: ${{ steps.load-config.outputs.service_name }}
-      region: ${{ steps.load-config.outputs.region }}
-      action: ${{ steps.set-action.outputs.action }}
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-=======
       project_id: ${{ steps.set-project.outputs.project_id }}
       service_name: ${{ steps.set-service.outputs.service_name }}
       action: ${{ steps.set-action.outputs.action }}
     
     steps:
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
       - name: Set environment based on trigger
         id: set-env
         run: |
@@ -97,12 +71,9 @@ jobs:
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
           fi
-<<<<<<< HEAD
-=======
           
           ENV=$(cat $GITHUB_OUTPUT | grep environment | cut -d'=' -f2)
           echo "Using environment: $ENV"
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
       
       - name: Set application based on trigger
         id: set-app
@@ -113,43 +84,6 @@ jobs:
             # Default to giortech for automated triggers
             echo "application=giortech" >> $GITHUB_OUTPUT
           fi
-<<<<<<< HEAD
-      
-      - name: Install yq
-        run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-      
-      - name: Load configuration
-        id: load-config
-        run: |
-          APP="${{ steps.set-app.outputs.application }}"
-          ENV="${{ steps.set-env.outputs.environment }}"
-          
-          if [ ! -f ".github/config/project-config.yml" ]; then
-            echo "::error::Configuration file not found: .github/config/project-config.yml"
-            exit 1
-          fi
-          
-          # Extract values from config file using yq
-          PROJECT_ID=$(yq e ".$APP.$ENV.project_id" .github/config/project-config.yml)
-          PROJECT_NUMBER=$(yq e ".$APP.$ENV.project_number" .github/config/project-config.yml)
-          SERVICE_NAME=$(yq e ".$APP.$ENV.service_name" .github/config/project-config.yml)
-          REGION=$(yq e ".$APP.$ENV.region" .github/config/project-config.yml)
-          
-          # Set outputs
-          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
-          echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
-          echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
-          echo "region=$REGION" >> $GITHUB_OUTPUT
-          
-          # Debug output
-          echo "Using configuration for $APP in $ENV environment:"
-          echo "  Project ID: $PROJECT_ID"
-          echo "  Project Number: $PROJECT_NUMBER"
-          echo "  Service Name: $SERVICE_NAME"
-          echo "  Region: $REGION"
-=======
           
           APP=$(cat $GITHUB_OUTPUT | grep application | cut -d'=' -f2)
           echo "Using application: $APP"
@@ -168,7 +102,6 @@ jobs:
           
           echo "Using project ID: $PROJECT_ID"
           echo "Using service name: $SERVICE_NAME"
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
       
       - name: Set action based on trigger
         id: set-action
@@ -178,11 +111,6 @@ jobs:
           else
             echo "action=apply" >> $GITHUB_OUTPUT
           fi
-<<<<<<< HEAD
-
-  deploy-network:
-    needs: determine-context
-=======
           
           ACTION=$(cat $GITHUB_OUTPUT | grep action | cut -d'=' -f2)
           echo "Using action: $ACTION"
@@ -250,7 +178,6 @@ jobs:
 
   deploy-network:
     needs: [determine-context, get-workload-identity]
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
     runs-on: ubuntu-latest
     
     permissions:
@@ -261,14 +188,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-<<<<<<< HEAD
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v1
-        with:
-          workload_identity_provider: projects/${{ needs.determine-context.outputs.project_number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-          service_account: github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com
-          project_id: ${{ needs.determine-context.outputs.project_id }}
-=======
       - name: Debug project ID issue
         run: |
           echo "Raw project ID from needs context: '${{ needs.determine-context.outputs.project_id }}'"
@@ -290,28 +209,18 @@ jobs:
           workload_identity_provider: ${{ needs.get-workload-identity.outputs.wi_provider }}
           service_account: ${{ needs.get-workload-identity.outputs.sa_email }}
           project_id: ${{ env.ACTUAL_PROJECT_ID }}
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
         with:
-<<<<<<< HEAD
-          project_id: ${{ needs.determine-context.outputs.project_id }}
-=======
           project_id: ${{ env.ACTUAL_PROJECT_ID }}
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
       
       - name: Check if Cloud Run service exists
         id: check-service
         run: |
           if gcloud run services describe ${{ needs.determine-context.outputs.service_name }} \
-<<<<<<< HEAD
-            --region=${{ needs.determine-context.outputs.region }} \
-            --project=${{ needs.determine-context.outputs.project_id }} 2>/dev/null; then
-=======
             --region=${{ env.REGION }} \
             --project=${{ env.ACTUAL_PROJECT_ID }} 2>/dev/null; then
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
             echo "service_exists=true" >> $GITHUB_OUTPUT
           else
             echo "service_exists=false" >> $GITHUB_OUTPUT
@@ -341,10 +250,6 @@ jobs:
           openssl req -x509 -newkey rsa:2048 -keyout terraform/modules/network_infrastructure/cert/key.pem -out terraform/modules/network_infrastructure/cert/cert.pem -days 365 -nodes -subj "/CN=${{ needs.determine-context.outputs.application }}.${{ needs.determine-context.outputs.environment }}.academyaxis.io" -addext "subjectAltName = DNS:${{ needs.determine-context.outputs.application }}.${{ needs.determine-context.outputs.environment }}.academyaxis.io"
           # Verify the files exist
           ls -la terraform/modules/network_infrastructure/cert/
-<<<<<<< HEAD
-          
-=======
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
       - name: Create Terraform main.tf file
         run: |
           cat > ${{ steps.tf-dir.outputs.tf_dir }}/main.tf << EOF
@@ -400,21 +305,13 @@ jobs:
           variable "project_id" {
             description = "The GCP project ID"
             type        = string
-<<<<<<< HEAD
-            default     = "${{ needs.determine-context.outputs.project_id }}"
-=======
             default     = "${{ env.ACTUAL_PROJECT_ID }}"
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
           }
 
           variable "region" {
             description = "The GCP region"
             type        = string
-<<<<<<< HEAD
-            default     = "${{ needs.determine-context.outputs.region }}"
-=======
             default     = "${{ env.REGION }}"
->>>>>>> 9b078fa0caa1de363db7cd29524e2ddb28b8afb4
           }
 
           variable "environment" {
