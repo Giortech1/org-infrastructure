@@ -198,7 +198,7 @@ jobs:
             echo "Creating workload_identity module files..."
             
             # Create main.tf
-cat > terraform/modules/workload_identity/main.tf << 'EOFMAIN'
+            cat << 'EOFMAIN' > terraform/modules/workload_identity/main.tf
 # Workload Identity module for GitHub Actions
 
 # Data source to get project number
@@ -218,7 +218,7 @@ resource "google_service_account" "github_actions_sa" {
 EOFMAIN
             
             # Create variables.tf
-cat > terraform/modules/workload_identity/variables.tf << 'EOFVARS'
+            cat << 'EOFVARS' > terraform/modules/workload_identity/variables.tf
 variable "project_id" {
   description = "The GCP project ID"
   type        = string
@@ -250,7 +250,7 @@ variable "create_service_account" {
 EOFVARS
             
             # Create outputs.tf
-cat > terraform/modules/workload_identity/outputs.tf << 'EOFOUTPUTS'
+            cat << 'EOFOUTPUTS' > terraform/modules/workload_identity/outputs.tf
 output "workload_identity_provider" {
   value = "projects/${data.google_project.project.number}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
   description = "Workload Identity Provider resource name for GitHub Actions"
