@@ -166,26 +166,17 @@ jobs:
           
           APP_NAME="${{ needs.determine-context.outputs.application }}"
           
-          # Debug information
-          echo "Application: $APP_NAME"
-          echo "Environment: $ENV_DIR"
-          
           TF_DIR="terraform/organization/$APP_NAME/$ENV_DIR"
-          echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
           
-          # List available directories for debugging
-          echo "Available directories:"
-          find terraform -type d | grep -v ".terraform" | sort || echo "No terraform directory"
+          # Ensure directory exists
+          mkdir -p $TF_DIR
+          echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
           
           # Check if directory exists
           if [ ! -d "$TF_DIR" ]; then
-            echo "Warning: Directory $TF_DIR does not exist"
-            if [ -d "terraform/organization/$APP_NAME" ]; then
-              echo "Available environments for $APP_NAME:"
-              ls -la terraform/organization/$APP_NAME/
-            fi
-            echo "tf_dir=" >> $GITHUB_OUTPUT
-            exit 0
+            echo "Error: Directory $TF_DIR does not exist"
+            ls -la terraform/organization/$APP_NAME/
+            exit 1
           fi
           
           echo "Using Terraform directory: $TF_DIR"
