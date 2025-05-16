@@ -196,32 +196,28 @@ jobs:
         run: |
           # Check if main.tf exists
           if [ -f "main.tf" ]; then
-            # Create backend override file
-cat > backend.tf <<EOF
-terraform {
+          # Create backend override file
+          echo 'terraform {
   backend "gcs" {
     bucket  = "academyaxis-terraform-state"
     prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
   }
-}
-EOF
+}' > backend.tf
 
-# Create a provider file to ensure proper authentication
-cat > provider.tf <<EOF
-provider "google" {
+          # Create a provider file to ensure proper authentication
+          echo 'provider "google" {
   project = "${{ needs.determine-context.outputs.project_id }}"
   region  = "${{ env.REGION }}"
-}
-EOF
+}' > provider.tf
 
-            echo "Running terraform init..."
-            # Initialize with explicit configuration
-            terraform init -reconfigure
+          echo "Running terraform init..."
+          # Initialize with explicit configuration
+          terraform init -reconfigure
           else
-            echo "Warning: main.tf not found in ${{ steps.tf-dir.outputs.tf_dir }}"
-            echo "Available files:"
-            ls -la
-            echo "Skipping terraform init"
+          echo "Warning: main.tf not found in ${{ steps.tf-dir.outputs.tf_dir }}"
+          echo "Available files:"
+          ls -la
+          echo "Skipping terraform init"
           fi
       
       - name: Get Workload Identity Provider and Service Account
