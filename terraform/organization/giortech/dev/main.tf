@@ -7,7 +7,7 @@ terraform {
   }
   backend "gcs" {
     bucket = "academyaxis-terraform-state"
-    prefix = "giortech"
+    prefix = "giortech/infrastructure/dev"
   }
 }
 
@@ -37,11 +37,11 @@ resource "google_project_service" "services" {
 
 # Workload Identity configuration
 module "workload_identity" {
-  source = "../../modules/workload_identity"
+  source = "../../../modules/workload_identity"  # Fix the module path
 
-  project_id  = var.project_id
-  github_org  = "giortech1"
-  github_repo = "org-infrastructure"
+  project_id    = var.project_id
+  github_org    = var.github_org
+  github_repo   = var.github_repo
 
   # Pass the variables for conditional creation
   create_identity_pool   = var.create_identity_pool

@@ -123,10 +123,79 @@ jobs:
             exit 1
           fi
 
-      - name: Terraform Init
+      - name: Verify Module Directory
+        run: |
+          MODULE_DIR="terraform/modules/workload_identity"
+          if [ ! -d "$MODULE_DIR" ]; then
+            echo "Error: Module directory '$MODULE_DIR' does not exist"
+            echo "Creating module directory structure..."
+            mkdir -p "$MODULE_DIR"
+          fi
+
+      - name: Setup Module Files
+        run: |
+          MODULE_DIR="terraform/modules/workload_identity"
+          
+          # Create module directory if it doesn't exist
+          mkdir -p "$MODULE_DIR"
+          
+          # Create main.tf
+          cat > "$MODULE_DIR/main.tf" << 'EOF'
+          data "google_project" "project" {
+            project_id = var.project_id
+          }
+
+          resource "google_service_account" "github_actions_sa" {
+            count        = var.create_service_account ? 1 : 0
+            account_id   = "github-actions-sa"
+            display_name = "GitHub Actions Service Account"
+            project      = var.project_id
+          }
+          EOF
+          
+          # Create variables.tf
+          cat > "$MODULE_DIR/variables.tf" << 'EOF'
+          variable "project_id" {
+            description = "The GCP project ID"
+            type        = string
+          }
+
+          variable "github_org" {
+            description = "The GitHub organization name"
+            type        = string
+            default     = "Giortech1"
+          }
+
+          variable "github_repo" {
+            description = "The GitHub repository name"
+            type        = string
+            default     = "org-infrastructure"
+          }
+          EOF
+          
+          # Create outputs.tf
+          cat > "$MODULE_DIR/outputs.tf" << 'EOF'
+          output "workload_identity_provider" {
+            value = "projects/${data.google_project.project.number}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          }
+
+          output "service_account_email" {
+            value = var.create_service_account ? google_service_account.github_actions_sa[0].email : "github-actions-sa@${var.project_id}.iam.gserviceaccount.com"
+          }
+          EOF
+
+      - name: Terraform Init with Debug
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
-          terraform init || { echo "Terraform initialization failed."; exit 1; }
+          echo "Current working directory: $(pwd)"
+          echo "Module path: $(realpath ../../../modules/workload_identity)"
+          ls -la ../../../modules/workload_identity || echo "Module directory not accessible"
+          
+          # Run terraform init with detailed logging
+          TF_LOG=DEBUG terraform init || {
+            echo "Terraform initialization failed"
+            exit 1
+          }
 
       - name: Verify Terraform State File
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
