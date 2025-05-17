@@ -112,17 +112,37 @@ jobs:
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: terraform init
       
+      - name: Verify Terraform State File
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          if [ ! -f "terraform.tfstate" ]; then
+            echo "Error: Terraform state file not found."
+            exit 1
+          fi
+      
+      - name: Debug Terraform Outputs
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          echo "Checking Terraform outputs..."
+          terraform output -json || echo "Failed to retrieve outputs"
+
       - name: Get Workload Identity Provider and Service Account
         id: identity
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
+          set -e
           PROVIDER=$(terraform output -raw workload_identity_provider 2>/dev/null || echo "")
           SA_EMAIL=$(terraform output -raw service_account_email 2>/dev/null || echo "")
           
           if [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
             echo "Warning: Could not get Workload Identity Provider or Service Account from Terraform outputs"
             echo "Using fallback values based on project ID"
-            PROVIDER="projects/$(gcloud projects describe ${{ needs.determine-context.outputs.project_id }} --format='value(projectNumber)')/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+            PROJECT_NUMBER=$(gcloud projects describe ${{ needs.determine-context.outputs.project_id }} --format='value(projectNumber)' || echo "")
+            if [ -z "$PROJECT_NUMBER" ]; then
+              echo "Error: Unable to retrieve project number."
+              exit 1
+            fi
+            PROVIDER="projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
             SA_EMAIL="github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com"
           fi
           
@@ -149,4 +169,18 @@ jobs:
           echo "PROVIDER: $PROVIDER"
           echo "SA_EMAIL: $SA_EMAIL"
       
+      - name: Debug Terraform Outputs
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          echo "Checking Terraform outputs..."
+          terraform output -json || echo "Failed to retrieve outputs"
+      
       # Removed the setup-lb-dns.sh call as we now handle networking separately
+
+output "workload_identity_provider" {
+  value = "projects/${google_project.project.number}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+}
+
+output "service_account_email" {
+  value = google_service_account.github_actions_sa.email
+}
