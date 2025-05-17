@@ -1,87 +1,254 @@
-# File: .github/config/project-config.yml
+# .github/workflows/branch-deploy.yml.yml
+name: Branch-Based Deployment
+on:
+  push:
+    branches:
+      - develop
+      - uat
+      - main
+
+env:
+  REGION: us-central1
+
+jobs:
+  determine-context:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      application: ${{ steps.set-app.outputs.application }}
+      project_id: ${{ steps.set-project.outputs.project_id }}
+    steps:
+      - name: Set environment based on branch
+        id: set-env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/uat" ]]; then
+            echo "environment=uat" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          fi
+          echo "Branch ${{ github.ref }} maps to environment: ${{ steps.set-env.outputs.environment }}"
+      - name: Set application based on repository
+        id: set-app
+        run: |
+          REPO_NAME="${{ github.repository }}"
+          REPO_PART=$(echo $REPO_NAME | cut -d'/' -f2)
+          if [[ "$REPO_PART" == "org-infrastructure" ]]; then
+            # Map the infrastructure repo to giortech
+            APP_NAME="giortech"
+          elif [[ "$REPO_PART" == giortech* ]]; then
+            APP_NAME="giortech"
+          elif [[ "$REPO_PART" == waspwallet* ]]; then
+            APP_NAME="waspwallet"
+          elif [[ "$REPO_PART" == academyaxis* ]]; then
+            APP_NAME="academyaxis"
+          else
+            APP_NAME=$REPO_PART
+          fi
+          echo "application=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "Repository $REPO_NAME maps to application: $APP_NAME"
+      - name: Set project ID
+        id: set-project
+        run: |
+          APP="${{ steps.set-app.outputs.application }}"
+          ENV="${{ steps.set-env.outputs.environment }}"
+          PROJECT_ID="${APP}-${ENV}-project"
+          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
+          echo "Using project ID: $PROJECT_ID"
+
+  deploy-infrastructure:
+    needs: determine-context
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Set Terraform working directory
+        id: tf-dir
+        run: |
+          ENV_DIR="${{ needs.determine-context.outputs.environment }}"
+          echo "Resolved ENV_DIR: $ENV_DIR"
+          APP="${{ needs.determine-context.outputs.application }}"
+          echo "Resolved APP: $APP"
+          TF_DIR="terraform/organization/$APP/$ENV_DIR"
+          TF_DIR=$(echo "$TF_DIR" | xargs)  # Trim whitespace
+          echo "Resolving TF_DIR to: '$TF_DIR'"
+          ls -la "$(dirname "$TF_DIR")" || echo "Parent directory does not exist"
+          ls -la "$TF_DIR" || echo "Target directory does not exist"
+          if [ ! -d "$TF_DIR" ]; then
+            echo "Error: Directory $TF_DIR does not exist"
+            exit 1
+          fi
+          echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
+          echo "Using Terraform directory: $TF_DIR"
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
+      - name: Debug Working Directory
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          echo "Current working directory: $(pwd)"
+          echo "Listing files in the directory:"
+          ls -la
+      - name: Verify Terraform Configuration
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          if [ ! -f "main.tf" ]; then
+            echo "Error: Terraform configuration file (main.tf) not found."
+            exit 1
+          fi
+      - name: Terraform Init
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          terraform init || { echo "Terraform initialization failed."; exit 1; }
+      - name: Verify Terraform State File
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          if [ ! -f "terraform.tfstate" ]; then
+            echo "Warning: Terraform state file not found. Skipping state verification."
+            exit 0
+          fi
+      - name: Debug Terraform Outputs
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          echo "Checking Terraform outputs..."
+          terraform output || echo "Failed to retrieve outputs"
+      - name: Get Project Configuration
+        id: project-config
+        run: |
+          # Read project configuration
+          CONFIG_FILE=".github/config/project-config.yml"
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "Error: Project configuration file not found at $CONFIG_FILE"
+            exit 1
+          fi
+          # Get values based on application and environment
+          APP="${{ needs.determine-context.outputs.application }}"
+          ENV="${{ needs.determine-context.outputs.environment }}"
+          # Use yq to parse YAML (install if needed)
+          if ! command -v yq &> /dev/null; then
+            echo "Installing yq..."
+            sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+            sudo chmod +x /usr/bin/yq
+          fi
+          # Extract values
+          PROJECT_ID=$(yq eval ".$APP.$ENV.project_id" "$CONFIG_FILE")
+          PROJECT_NUMBER=$(yq eval ".$APP.$ENV.project_number" "$CONFIG_FILE")
+          if [ "$PROJECT_ID" = "null" ] || [ "$PROJECT_NUMBER" = "null" ]; then
+            echo "Error: Could not find project configuration for $APP $ENV"
+            exit 1
+          fi
+          # Set outputs
+          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
+          echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
+      - name: Get Workload Identity Provider and Service Account
+        id: identity
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          set -e
+          # Try Terraform outputs first
+          if terraform output -json > outputs.json 2>/dev/null; then
+            PROVIDER=$(jq -r '.workload_identity_provider.value // empty' outputs.json)
+            SA_EMAIL=$(jq -r '.service_account_email.value // empty' outputs.json)
+            rm outputs.json
+          fi
+          # Use fallback values if needed
+          if [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
+            echo "Using values from project configuration"
+            PROJECT_NUMBER="${{ steps.project-config.outputs.project_number }}"
+            PROJECT_ID="${{ steps.project-config.outputs.project_id }}"
+            PROVIDER="projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+            SA_EMAIL="github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
+          fi
+          echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
+          echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          workload_identity_provider: ${{ steps.identity.outputs.wi_provider }}
+          service_account: ${{ steps.identity.outputs.sa_email }}
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+      - name: Run Infrastructure Deployment
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          terraform apply -auto-approve
+      - name: Debug Outputs
+        run: |
+          echo "TF_DIR: $TF_DIR"
+          echo "PROVIDER: $PROVIDER"
+          echo "SA_EMAIL: $SA_EMAIL"
+      - name: Debug Terraform Outputs
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          echo "Checking Terraform outputs..."
+          terraform output || echo "Failed to retrieve outputs"
+
+# Project Configuration
 giortech:
-    dev:
-      project_id: "giortech-dev-project"
-      project_number: "653675374627"
-      region: "us-central1"
-      service_name: "giortech-dev"
-      min_instances: 0
-      max_instances: 5
-      memory: "512Mi"
-      cpu: 1
-    uat:
-      project_id: "giortech-uat-project"
-      project_number: "28962750525"
-      region: "us-central1"
-      service_name: "giortech-uat"
-      min_instances: 0
-      max_instances: 10
-      memory: "512Mi"
-      cpu: 1
-    prod:
-      project_id: "giortech-prod-project"
-      project_number: "371831144642"
-      region: "us-central1"
-      service_name: "giortech-prod"
-      min_instances: 1
-      max_instances: 20
-      memory: "1Gi"
-      cpu: 2
-      
-waspwallet:
-    dev:
-      project_id: "waspwallet-dev-project"
-      project_number: "260301647000"  
-      region: "us-central1"
-      service_name: "waspwallet-dev"
-      min_instances: 0
-      max_instances: 5
-      memory: "512Mi"
-      cpu: 1
-    uat:
-      project_id: "waspwallet-uat-project"
-      project_number: "875164789138" 
-      region: "us-central1"
-      service_name: "waspwallet-uat"
-      min_instances: 0
-      max_instances: 10
-      memory: "512Mi"
-      cpu: 1
-    prod:
-      project_id: "waspwallet-prod-project"
-      project_number: "142392555937"  
-      region: "us-central1"
-      service_name: "waspwallet-prod"
-      min_instances: 1
-      max_instances: 20
-      memory: "1Gi"
-      cpu: 2
- 
- academyaxis:
-    dev:
-      project_id: "academyaxis-dev-project"
-      project_number: "1052274887859"  
-      region: "us-central1"
-      service_name: "academyaxis-dev"
-      min_instances: 0
-      max_instances: 5
-      memory: "512Mi"
-      cpu: 1
-    uat:
-      project_id: "academyaxis-uat-project"
-      project_number: "415071431590" 
-      region: "us-central1"
-      service_name: "academyaxis-uat"
-      min_instances: 1
-      max_instances: 5
-      memory: "512Mi"
-      cpu: 1
-    prod:
-      project_id: "academyaxis-prod-project"
-      project_number: "552816176477" 
-      region: "us-central1"
-      service_name: "academyaxis-prod"
-      min_instances: 1
-      max_instances: 20
-      memory: "1Gi"
-      cpu: 2
+  dev:
+    project_id: "giortech-dev-project"
+    project_number: "653675374627"
+    region: "us-central1"
+    service_name: "giortech-dev"
+    min_instances: 0
+    max_instances: 5
+    memory: "512Mi"
+    cpu: 1
+
+  uat:
+    project_id: "giortech-uat-project"
+    project_number: "28962750525"
+    region: "us-central1"
+    service_name: "giortech-uat"
+    min_instances: 0
+    max_instances: 10
+    memory: "512Mi"
+    cpu: 1
+
+  prod:
+    project_id: "giortech-prod-project"
+    project_number: "260301647000"
+    region: "us-central1"
+    service_name: "giortech-prod"
+    min_instances: 1
+    max_instances: 20
+    memory: "1Gi"
+    cpu: 2
+
+academyaxis:
+  dev:
+    project_id: "academyaxis-dev-project"
+    project_number: "875164789138"
+    region: "us-central1"
+    service_name: "academyaxis-dev"
+    min_instances: 0
+    max_instances: 5
+    memory: "512Mi"
+    cpu: 1
+
+  uat:
+    project_id: "academyaxis-uat-project"
+    project_number: "071431590"
+    region: "us-central1"
+    service_name: "academyaxis-uat"
+    min_instances: 0
+    max_instances: 10
+    memory: "512Mi"
+    cpu: 1
+
+  prod:
+    project_id: "academyaxis-prod-project"
+    project_number: "552816176477"
+    region: "us-central1"
+    service_name: "academyaxis-prod"
+    min_instances: 1
+    max_instances: 20
+    memory: "1Gi"
+    cpu: 2
