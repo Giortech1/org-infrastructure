@@ -83,22 +83,23 @@ jobs:
         id: tf-dir
         run: |
           ENV_DIR="${{ needs.determine-context.outputs.environment }}"
-          if [ "$ENV_DIR" = "develop" ]; then
-            ENV_DIR="dev"
-          fi
-
-          TF_DIR="terraform/organization/${{ needs.determine-context.outputs.application }}/$ENV_DIR"
+          echo "Resolved ENV_DIR: $ENV_DIR"
+      
+          APP="${{ needs.determine-context.outputs.application }}"
+          echo "Resolved APP: $APP"
+      
+          TF_DIR="terraform/organization/$APP/$ENV_DIR"
           TF_DIR=$(echo "$TF_DIR" | xargs)  # Trim whitespace
-
+      
           echo "Resolving TF_DIR to: '$TF_DIR'"
           ls -la "$(dirname "$TF_DIR")" || echo "Parent directory does not exist"
           ls -la "$TF_DIR" || echo "Target directory does not exist"
-
+      
           if [ ! -d "$TF_DIR" ]; then
             echo "Error: Directory $TF_DIR does not exist"
             exit 1
           fi
-
+      
           echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
           echo "Using Terraform directory: $TF_DIR"
       
