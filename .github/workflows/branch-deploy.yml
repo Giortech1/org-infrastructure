@@ -176,11 +176,3 @@ jobs:
           terraform output -json || echo "Failed to retrieve outputs"
       
       # Removed the setup-lb-dns.sh call as we now handle networking separately
-
-output "workload_identity_provider" {
-  value = "projects/${google_project.project.number}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-}
-
-output "service_account_email" {
-  value = google_service_account.github_actions_sa.email
-}
