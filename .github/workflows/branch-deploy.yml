@@ -143,4 +143,10 @@ jobs:
         run: |
           terraform apply -auto-approve
       
+      - name: Debug Outputs
+        run: |
+          echo "TF_DIR: $TF_DIR"
+          echo "PROVIDER: $PROVIDER"
+          echo "SA_EMAIL: $SA_EMAIL"
+      
       # Removed the setup-lb-dns.sh call as we now handle networking separately
