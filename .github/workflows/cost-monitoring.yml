@@ -139,7 +139,7 @@ jobs:
       
       - name: Upload report artifact
         if: steps.action.outputs.action == 'report'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: cost-report-${{ steps.date.outputs.current_date }}
           path: ./reports/cost-report-${{ steps.date.outputs.current_date }}.md
