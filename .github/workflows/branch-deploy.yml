@@ -1,4 +1,4 @@
-# .github/workflows/branch-deploy.yml
+# File: .github/workflows/branch-deploy.yml
 name: Branch-Based Deployment
 
 on:
@@ -7,9 +7,26 @@ on:
       - develop
       - uat
       - main
-
-env:
-  REGION: us-central1
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy (dev, uat, prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - uat
+          - prod
+      application:
+        description: 'Application to deploy'
+        required: true
+        default: 'giortech'
+        type: choice
+        options:
+          - giortech
+          - waspwallet
+          - academyaxis
 
 jobs:
   determine-context:
@@ -17,13 +34,20 @@ jobs:
     outputs:
       environment: ${{ steps.set-env.outputs.environment }}
       application: ${{ steps.set-app.outputs.application }}
-      project_id: ${{ steps.set-project.outputs.project_id }}
+      project_id: ${{ steps.load-config.outputs.project_id }}
+      project_number: ${{ steps.load-config.outputs.project_number }}
+      region: ${{ steps.load-config.outputs.region }}
     
     steps:
-      - name: Set environment based on branch
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set environment based on trigger
         id: set-env
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/uat" ]]; then
             echo "environment=uat" >> $GITHUB_OUTPUT
@@ -32,40 +56,62 @@ jobs:
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
           fi
-          
-          echo "Branch ${{ github.ref }} maps to environment: ${{ steps.set-env.outputs.environment }}"
       
-      - name: Set application based on repository
+      - name: Set application based on trigger or repository
         id: set-app
         run: |
-          REPO_NAME="${{ github.repository }}"
-          REPO_PART=$(echo $REPO_NAME | cut -d'/' -f2)
-            
-          if [[ "$REPO_PART" == "org-infrastructure" ]]; then
-            # Map the infrastructure repo to giortech
-            APP_NAME="giortech"
-          elif [[ "$REPO_PART" == giortech* ]]; then
-            APP_NAME="giortech"
-          elif [[ "$REPO_PART" == waspwallet* ]]; then
-            APP_NAME="waspwallet"
-          elif [[ "$REPO_PART" == academyaxis* ]]; then
-            APP_NAME="academyaxis"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            APP_NAME="${{ github.event.inputs.application }}"
           else
-            APP_NAME=$REPO_PART
+            REPO_NAME="${{ github.repository }}"
+            REPO_PART=$(echo $REPO_NAME | cut -d'/' -f2)
+              
+            if [[ "$REPO_PART" == "org-infrastructure" ]]; then
+              APP_NAME="giortech"
+            elif [[ "$REPO_PART" == giortech* ]]; then
+              APP_NAME="giortech"
+            elif [[ "$REPO_PART" == waspwallet* ]]; then
+              APP_NAME="waspwallet"
+            elif [[ "$REPO_PART" == academyaxis* ]]; then
+              APP_NAME="academyaxis"
+            else
+              APP_NAME=$REPO_PART
+            fi
           fi
             
           echo "application=$APP_NAME" >> $GITHUB_OUTPUT
-          echo "Repository $REPO_NAME maps to application: $APP_NAME"
       
-      - name: Set project ID
-        id: set-project
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      
+      - name: Load configuration
+        id: load-config
         run: |
           APP="${{ steps.set-app.outputs.application }}"
           ENV="${{ steps.set-env.outputs.environment }}"
           
-          PROJECT_ID="${APP}-${ENV}-project"
+          if [ ! -f ".github/config/project-config.yml" ]; then
+            echo "::error::Configuration file not found: .github/config/project-config.yml"
+            exit 1
+          fi
+          
+          # Extract values from config file using yq
+          PROJECT_ID=$(yq e ".$APP.$ENV.project_id" .github/config/project-config.yml)
+          PROJECT_NUMBER=$(yq e ".$APP.$ENV.project_number" .github/config/project-config.yml)
+          REGION=$(yq e ".$APP.$ENV.region" .github/config/project-config.yml)
+          
+          # Set outputs
           echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
-          echo "Using project ID: $PROJECT_ID"
+          echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
+          echo "region=$REGION" >> $GITHUB_OUTPUT
+          
+          # Debug output
+          echo "Using configuration for $APP in $ENV environment:"
+          echo "  Project ID: $PROJECT_ID"
+          echo "  Project Number: $PROJECT_NUMBER"
+          echo "  Region: $REGION"
   
   deploy-infrastructure:
     needs: determine-context
@@ -77,30 +123,42 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+      
+      # Authenticate with Google Cloud FIRST - before Terraform init
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/${{ needs.determine-context.outputs.project_number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Verify authentication
+        run: |
+          echo "Current project: $(gcloud config get-value project)"
+          echo "Current account: $(gcloud config get-value account)"
+          gcloud projects describe ${{ needs.determine-context.outputs.project_id }} || echo "Project verification failed"
       
       - name: Set Terraform working directory
         id: tf-dir
         run: |
           ENV_DIR="${{ needs.determine-context.outputs.environment }}"
-          echo "Resolved ENV_DIR: $ENV_DIR"
-      
-          APP="${{ needs.determine-context.outputs.application }}"
-          echo "Resolved APP: $APP"
-      
-          TF_DIR="terraform/organization/$APP/$ENV_DIR"
-          TF_DIR=$(echo "$TF_DIR" | xargs)  # Trim whitespace
-      
-          echo "Resolving TF_DIR to: '$TF_DIR'"
-          ls -la "$(dirname "$TF_DIR")" || echo "Parent directory does not exist"
-          ls -la "$TF_DIR" || echo "Target directory does not exist"
-      
-          if [ ! -d "$TF_DIR" ]; then
-            echo "Error: Directory $TF_DIR does not exist"
-            exit 1
+          if [ "$ENV_DIR" = "develop" ]; then
+            ENV_DIR="dev"
           fi
-      
+          
+          TF_DIR="terraform/organization/${{ needs.determine-context.outputs.application }}/$ENV_DIR"
           echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
+          
+          if [ ! -d "$TF_DIR" ]; then
+            echo "Warning: Directory $TF_DIR does not exist"
+            mkdir -p "$TF_DIR"
+            echo "Created directory: $TF_DIR"
+          fi
+          
           echo "Using Terraform directory: $TF_DIR"
       
       - name: Setup Terraform
@@ -108,156 +166,38 @@ jobs:
         with:
           terraform_version: 1.5.0
       
-      - name: Debug Working Directory
+      - name: Check Terraform files exist
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
-          echo "Current working directory: $(pwd)"
-          echo "Listing files in the directory:"
+          echo "Contents of $(pwd):"
           ls -la
-
-      - name: Verify Terraform Configuration
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: |
+          
           if [ ! -f "main.tf" ]; then
-            echo "Error: Terraform configuration file (main.tf) not found."
+            echo "::error::main.tf not found in ${{ steps.tf-dir.outputs.tf_dir }}"
+            echo "This workflow expects Terraform files to exist in the environment directory"
             exit 1
           fi
-
-      - name: Verify Module Directory
+      
+      - name: Terraform Init
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        env:
+          GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: |
-          MODULE_DIR="terraform/modules/workload_identity"
-          if [ ! -d "$MODULE_DIR" ]; then
-            echo "Error: Module directory '$MODULE_DIR' does not exist"
-            echo "Creating module directory structure..."
-            mkdir -p "$MODULE_DIR"
-          fi
-
-      - name: Setup Module Files
-        run: |
-          MODULE_DIR="terraform/modules/workload_identity"
-          
-          # Create module directory if it doesn't exist
-          mkdir -p "$MODULE_DIR"
-          
-          # Create main.tf
-          cat > "$MODULE_DIR/main.tf" << 'EOF'
-          data "google_project" "project" {
-            project_id = var.project_id
-          }
-
-          resource "google_service_account" "github_actions_sa" {
-            count        = var.create_service_account ? 1 : 0
-            account_id   = "github-actions-sa"
-            display_name = "GitHub Actions Service Account"
-            project      = var.project_id
-          }
-          EOF
-          
-          # Create variables.tf
-          cat > "$MODULE_DIR/variables.tf" << 'EOF'
-          variable "project_id" {
-            description = "The GCP project ID"
-            type        = string
-          }
-
-          variable "github_org" {
-            description = "The GitHub organization name"
-            type        = string
-            default     = "Giortech1"
-          }
-
-          variable "github_repo" {
-            description = "The GitHub repository name"
-            type        = string
-            default     = "org-infrastructure"
-          }
-          EOF
-          
-          # Create outputs.tf
-          cat > "$MODULE_DIR/outputs.tf" << 'EOF'
-          output "workload_identity_provider" {
-            value = "projects/${data.google_project.project.number}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          }
-
-          output "service_account_email" {
-            value = var.create_service_account ? google_service_account.github_actions_sa[0].email : "github-actions-sa@${var.project_id}.iam.gserviceaccount.com"
-          }
-          EOF
-
-      - name: Terraform Init with Debug
+          echo "Initializing Terraform in $(pwd)"
+          terraform init -reconfigure
+      
+      - name: Terraform Plan
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
-          echo "Current working directory: $(pwd)"
-          echo "Module path: $(realpath ../../../modules/workload_identity)"
-          ls -la ../../../modules/workload_identity || echo "Module directory not accessible"
+          terraform plan -out=tfplan
+      
+      - name: Terraform Apply
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          terraform apply -auto-approve tfplan
           
-          # Run terraform init with detailed logging
-          TF_LOG=DEBUG terraform init || {
-            echo "Terraform initialization failed"
-            exit 1
-          }
-
-      - name: Verify Terraform State File
+      - name: Show Terraform Outputs
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
-          if [ ! -f "terraform.tfstate" ]; then
-            echo "Warning: Terraform state file not found. Skipping state verification."
-            exit 0
-          fi
-
-      - name: Debug Terraform Outputs
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: |
-          echo "Checking Terraform outputs..."
-          terraform output || echo "Failed to retrieve outputs"
-
-      - name: Get Workload Identity Provider and Service Account
-        id: identity
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: |
-          set -e
-          PROVIDER=$(terraform output -raw workload_identity_provider 2>/dev/null || echo "")
-          SA_EMAIL=$(terraform output -raw service_account_email 2>/dev/null || echo "")
-          
-          if [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
-            echo "Warning: Could not get Workload Identity Provider or Service Account from Terraform outputs"
-            echo "Using fallback values based on project ID"
-            PROJECT_NUMBER=$(gcloud projects describe ${{ needs.determine-context.outputs.project_id }} --format='value(projectNumber)' || echo "")
-            if [ -z "$PROJECT_NUMBER" ]; then
-              echo "Error: Unable to retrieve project number."
-              exit 1
-            fi
-            PROVIDER="projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-            SA_EMAIL="github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com"
-          fi
-          
-          echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
-          echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
-      
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v1
-        with:
-          workload_identity_provider: ${{ steps.identity.outputs.wi_provider }}
-          service_account: ${{ steps.identity.outputs.sa_email }}
-      
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
-      
-      - name: Run Infrastructure Deployment
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: |
-          terraform apply -auto-approve
-      
-      - name: Debug Outputs
-        run: |
-          echo "TF_DIR: $TF_DIR"
-          echo "PROVIDER: $PROVIDER"
-          echo "SA_EMAIL: $SA_EMAIL"
-      
-      - name: Debug Terraform Outputs
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: |
-          echo "Checking Terraform outputs..."
-          terraform output || echo "Failed to retrieve outputs"
-      
-      # Removed the setup-lb-dns.sh call as we now handle networking separately
+          echo "Terraform outputs:"
+          terraform output || echo "No outputs defined"
