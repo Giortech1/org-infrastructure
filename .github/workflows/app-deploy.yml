@@ -10,6 +10,7 @@
 # The workflow also includes error handling and logging to ensure smooth execution and debugging.
 # The workflow is designed to be flexible and reusable for different applications and environments.
 # The workflow uses Google Cloud services such as Cloud Build and Cloud Run for building and deploying the application.
+
 name: Deploy Application
 
 on:
@@ -41,7 +42,6 @@ jobs:
       application: ${{ steps.set-app.outputs.application }}
       project_id: ${{ steps.set-project.outputs.project_id }}
       service_name: ${{ steps.set-service.outputs.service_name }}
-    
     steps:
       - name: Set environment based on branch or input
         id: set-env
@@ -57,25 +57,17 @@ jobs:
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
           fi
-          
           echo "Using environment: ${{ steps.set-env.outputs.environment }}"
-      
+
       - name: Set application based on repository
         id: set-app
         run: |
-          # Extract application name from repository name
-          # Expected format: owner/app-name or owner/app-name-suffix
           REPO_NAME="${{ github.repository }}"
-          # First extract the repo part (after the /)
           REPO_PART=$(echo $REPO_NAME | cut -d'/' -f2)
-          
-          # Debugging
           echo "Repository name: $REPO_NAME"
           echo "Repository part: $REPO_PART"
-          
-          # Then determine application by prefix or name
           if [[ "$REPO_PART" == "org-infrastructure" ]]; then
-            APP_NAME="giortech"  # Set default application for infra repo
+            APP_NAME="giortech"
           elif [[ "$REPO_PART" == giortech* ]]; then
             APP_NAME="giortech"
           elif [[ "$REPO_PART" == waspwallet* ]]; then
@@ -83,31 +75,25 @@ jobs:
           elif [[ "$REPO_PART" == academyaxis* ]]; then
             APP_NAME="academyaxis"
           else
-            # Default to the repository name if no match
             APP_NAME=$REPO_PART
           fi
-          
           echo "application=$APP_NAME" >> $GITHUB_OUTPUT
           echo "Using application: $APP_NAME"
-      
+
       - name: Set project ID and service name
         id: set-project
         run: |
-          # Combine application and environment to form project ID
           APP="${{ steps.set-app.outputs.application }}"
           ENV="${{ steps.set-env.outputs.environment }}"
-          
           PROJECT_ID="${APP}-${ENV}-project"
           echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
           echo "Using project ID: $PROJECT_ID"
-      
+
       - name: Set service name
         id: set-service
         run: |
-          # Create Cloud Run service name
           APP="${{ steps.set-app.outputs.application }}"
           ENV="${{ steps.set-env.outputs.environment }}"
-          
           SERVICE_NAME="${APP}-${ENV}"
           echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
           echo "Using service name: $SERVICE_NAME"
@@ -118,43 +104,47 @@ jobs:
     outputs:
       wi_provider: ${{ steps.identity.outputs.wi_provider }}
       sa_email: ${{ steps.identity.outputs.sa_email }}
-    
     permissions:
       contents: 'read'
       id-token: 'write'
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ needs.determine-context.outputs.project_id }}
+
+      - name: Fetch Project Number
+        id: fetch-project-number
+        run: |
+          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
+          PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
+          echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
+
       - name: Get Workload Identity Provider and Service Account
         id: identity
         run: |
           PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
-          PROJECT_NUMBER="${{ needs.determine-context.outputs.project_number }}"
-          
-          # Format Workload Identity Provider path
+          PROJECT_NUMBER="${{ steps.fetch-project-number.outputs.project_number }}"
           WI_PROVIDER="projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           SA_EMAIL="github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
-          
           echo "wi_provider=$WI_PROVIDER" >> $GITHUB_OUTPUT
           echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
-          
           echo "Using Workload Identity Provider: $WI_PROVIDER"
           echo "Using Service Account: $SA_EMAIL"
-  
+
   build-and-deploy:
     needs: [determine-context, get-identity]
     runs-on: ubuntu-latest
-    
     permissions:
       contents: 'read'
       id-token: 'write'
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Authenticate to Google Cloud
         id: auth
         uses: google-github-actions/auth@v2
@@ -164,7 +154,7 @@ jobs:
           project_id: ${{ needs.determine-context.outputs.project_id }}
           create_credentials_file: true
           token_format: 'access_token'
-      
+
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:

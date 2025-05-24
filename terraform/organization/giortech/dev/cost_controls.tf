@@ -1,5 +1,5 @@
 # Configure cost controls for giortech development environment
-module "giortech_dev_cost_controls" {
+/*module "giortech_dev_cost_controls" {
   source = "../../../modules/cost_controls"
   
   project_id         = "giortech-dev-project"
@@ -9,7 +9,7 @@ module "giortech_dev_cost_controls" {
   budget_amount      = 50  # $50 monthly budget for dev environment
   alert_email_address = "devops@academyaxis.io"
 }
-
+*/
 # Output the dashboard URLs for easy access
 output "cost_control_dashboards" {
   value = module.giortech_dev_cost_controls.dashboards
