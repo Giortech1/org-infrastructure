@@ -98,6 +98,7 @@ jobs:
           echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
           echo "Using service name: $SERVICE_NAME"
 
+
   get-identity:
     needs: determine-context
     runs-on: ubuntu-latest
@@ -111,10 +112,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ needs.determine-context.outputs.project_id }}
+          service_account: ${{ needs.determine-context.outputs.sa_email }}
+
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ needs.determine-context.outputs.project_id }}
+          export_default_credentials: true
 
       - name: Fetch Project Number
         id: fetch-project-number
