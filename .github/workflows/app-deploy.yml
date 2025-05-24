@@ -125,233 +125,24 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
-      
-      # Add initial authentication for project access
-      - name: Determine project number
-        id: project-num
-        run: |
-          # Determine project number based on known project IDs
-          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
-          if [[ "$PROJECT_ID" == "giortech-dev-project" ]]; then
-            echo "number=653675374627" >> $GITHUB_OUTPUT
-          elif [[ "$PROJECT_ID" == "giortech-uat-project" ]]; then
-            echo "number=28962750525" >> $GITHUB_OUTPUT
-          elif [[ "$PROJECT_ID" == "giortech-prod-project" ]]; then
-            echo "number=371831144642" >> $GITHUB_OUTPUT
-          else
-            echo "number=653675374627" >> $GITHUB_OUTPUT  # Default to dev as fallback
-          fi
-          echo "Using project number: ${{ steps.project-num.outputs.number }}"
-      
-      - name: Authenticate for initial setup
-        id: auth
-        uses: google-github-actions/auth@v1
-        with:
-          workload_identity_provider: projects/${{ steps.project-num.outputs.number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-          service_account: github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com
-          token_format: 'access_token'
-      
-      - name: Set up Cloud SDK for initial setup
-        uses: google-github-actions/setup-gcloud@v1
-        with:
-          version: '>= 363.0.0'
-          project_id: ${{ needs.determine-context.outputs.project_id }}
-      
-      - name: Verify GCP connection
-        run: |
-          echo "Testing GCP connection:"
-          gcloud auth list
-          gcloud config list project
-          echo "Storage buckets accessible to service account:"
-          gcloud storage buckets list --project=${{ needs.determine-context.outputs.project_id }} || echo "Unable to list buckets"
-      
-      - name: Set Terraform working directory
-        id: tf-dir
-        run: |
-          # Map environment name to directory name
-          ENV_DIR="${{ needs.determine-context.outputs.environment }}"
-          if [ "$ENV_DIR" = "develop" ]; then
-            ENV_DIR="dev"
-          fi
-          
-          APP_NAME="${{ needs.determine-context.outputs.application }}"
-          
-          TF_DIR="terraform/organization/$APP_NAME/$ENV_DIR"
-          
-          # Ensure directory exists
-          mkdir -p $TF_DIR
-          echo "tf_dir=$TF_DIR" >> $GITHUB_OUTPUT
-          
-          # Check if directory exists
-          if [ ! -d "$TF_DIR" ]; then
-            echo "Error: Directory $TF_DIR does not exist"
-            ls -la terraform/organization/$APP_NAME/
-            exit 1
-          fi
-          
-          echo "Using Terraform directory: $TF_DIR"
-      
-      - name: Setup Terraform
-        if: steps.tf-dir.outputs.tf_dir != ''
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.5.0
-      
-      - name: Create required directories for modules
-        if: steps.tf-dir.outputs.tf_dir != ''
-        run: |
-          # Ensure the modules directory exists
-          mkdir -p terraform/modules/workload_identity
-
-          # Check if the module files already exist
-          if [ ! -f "terraform/modules/workload_identity/main.tf" ]; then
-            echo "Creating workload_identity module files..."
-
-            # Create main.tf
-            cat > terraform/modules/workload_identity/main.tf << 'EOFMAIN'
-# Workload Identity module for GitHub Actions
-
-# Data source to get project number
-data "google_project" "project" {
-  project_id = var.project_id
-}
-
-# Create Service Account for GitHub Actions if requested
-resource "google_service_account" "github_actions_sa" {
-  count = var.create_service_account ? 1 : 0
-
-  account_id   = "github-actions-sa"
-  display_name = "GitHub Actions Service Account"
-  project      = var.project_id
-  description  = "Service account for GitHub Actions"
-}
-EOFMAIN
-
-            # Create variables.tf
-            cat > terraform/modules/workload_identity/variables.tf << 'EOFVARS'
-variable "project_id" {
-  description = "The GCP project ID"
-  type        = string
-}
-
-variable "github_org" {
-  description = "The GitHub organization name"
-  type        = string
-  default     = "Giortech1"
-}
-
-variable "github_repo" {
-  description = "The GitHub repository name"
-  type        = string
-  default     = "org-infrastructure"
-}
-
-variable "create_identity_pool" {
-  description = "Whether to create the workload identity pool"
-  type        = bool
-  default     = true
-}
-
-variable "create_service_account" {
-  description = "Whether to create the service account"
-  type        = bool
-  default     = true
-}
-EOFVARS
-
-            # Create outputs.tf
-            cat > terraform/modules/workload_identity/outputs.tf << 'EOFOUTPUTS'
-output "workload_identity_provider" {
-  value = "projects/${data.google_project.project.number}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-  description = "Workload Identity Provider resource name for GitHub Actions"
-}
-
-output "service_account_email" {
-  value = var.create_service_account ? google_service_account.github_actions_sa[0].email : "github-actions-sa@${var.project_id}.iam.gserviceaccount.com"
-  description = "Service Account email for GitHub Actions"
-}
-EOFOUTPUTS
-          fi
-      
-      - name: Terraform Init
-        if: steps.tf-dir.outputs.tf_dir != ''
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: |
-          # Check if main.tf exists
-          if [ -f "main.tf" ]; then
-            # Create backend override file
-            cat > backend.tf << EOF
-terraform {
-  backend "gcs" {
-    bucket  = "academyaxis-terraform-state"
-    prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
-  }
-}
-EOF
-            
-            # Create a provider file to ensure proper authentication
-            cat > provider.tf << EOF
-provider "google" {
-  project = "${{ needs.determine-context.outputs.project_id }}"
-  region  = "${{ env.REGION }}"
-}
-EOF
-            
-            echo "Running terraform init..."
-            # Initialize with explicit configuration
-            terraform init -reconfigure
-          else
-            echo "Warning: main.tf not found in ${{ steps.tf-dir.outputs.tf_dir }}"
-            echo "Available files:"
-            ls -la
-            echo "Skipping terraform init"
-          fi
+        uses: actions/checkout@v4
       
       - name: Get Workload Identity Provider and Service Account
         id: identity
         run: |
           PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
+          PROJECT_NUMBER="${{ needs.determine-context.outputs.project_number }}"
           
-          # Determine project number based on known project IDs
-          if [[ "$PROJECT_ID" == "giortech-dev-project" ]]; then
-            PROJECT_NUM="653675374627"
-          elif [[ "$PROJECT_ID" == "giortech-uat-project" ]]; then
-            PROJECT_NUM="28962750525"
-          elif [[ "$PROJECT_ID" == "giortech-prod-project" ]]; then
-            PROJECT_NUM="371831144642"
-          else
-            PROJECT_NUM=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)' 2>/dev/null || echo '12345')
-          fi
+          # Format Workload Identity Provider path
+          WI_PROVIDER="projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          SA_EMAIL="github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
           
-          # Try to get from Terraform if possible
-          if [ -d "${{ steps.tf-dir.outputs.tf_dir }}" ] && [ -f "${{ steps.tf-dir.outputs.tf_dir }}/main.tf" ]; then
-            cd ${{ steps.tf-dir.outputs.tf_dir }}
-            
-            # Run terraform apply to ensure outputs are available
-            terraform apply -auto-approve
-            
-            # Get the outputs or use fallback values
-            PROVIDER=$(terraform output -raw workload_identity_provider 2>/dev/null || echo "")
-            SA_EMAIL=$(terraform output -raw service_account_email 2>/dev/null || echo "")
-          else
-            PROVIDER=""
-            SA_EMAIL=""
-          fi
-          
-          # Use hardcoded values if needed
-          if [ -z "$PROVIDER" ] || [ -z "$SA_EMAIL" ]; then
-            echo "Using hardcoded Workload Identity values"
-            PROVIDER="projects/$PROJECT_NUM/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-            SA_EMAIL="github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
-          fi
-          
-          echo "wi_provider=$PROVIDER" >> $GITHUB_OUTPUT
+          echo "wi_provider=$WI_PROVIDER" >> $GITHUB_OUTPUT
           echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
           
-          echo "Using Workload Identity Provider: $PROVIDER"
+          echo "Using Workload Identity Provider: $WI_PROVIDER"
           echo "Using Service Account: $SA_EMAIL"
-
+  
   build-and-deploy:
     needs: [determine-context, get-identity]
     runs-on: ubuntu-latest
@@ -362,108 +153,19 @@ EOF
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v1
+        id: auth
+        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ needs.get-identity.outputs.wi_provider }}
           service_account: ${{ needs.get-identity.outputs.sa_email }}
+          project_id: ${{ needs.determine-context.outputs.project_id }}
+          create_credentials_file: true
+          token_format: 'access_token'
       
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
-      
-      - name: Verify GCP authentication and project
-        run: |
-          echo "Listing available projects:"
-          gcloud projects list --limit=5
-          
-          echo "Current project info:"
-          gcloud config get-value project
-          gcloud projects describe ${{ needs.determine-context.outputs.project_id }} || echo "Project not found or not accessible"
-          
-          echo "Checking if required APIs are enabled:"
-          gcloud services list --project=${{ needs.determine-context.outputs.project_id }} | grep -E 'cloudbuild|run|compute|storage' || echo "Some APIs may need to be enabled"
-      
-      - name: Build Container
-        run: |
-          echo "Building container for ${{ needs.determine-context.outputs.application }} (${{ needs.determine-context.outputs.environment }})"
-          
-          # Ensure cloudbuild API is enabled
-          gcloud services enable cloudbuild.googleapis.com --project=${{ needs.determine-context.outputs.project_id }}
-          
-          # Check if Dockerfile exists
-          if [ ! -f "Dockerfile" ]; then
-            echo "Warning: Dockerfile not found at root. Using fallback image."
-            echo "Skipping build step."
-            echo "CONTAINER_IMAGE=gcr.io/google-samples/hello-app:1.0" >> $GITHUB_ENV
-            exit 0
-          fi
-          
-          # Submit the build to Cloud Build
-          gcloud builds submit \
-            --tag gcr.io/${{ needs.determine-context.outputs.project_id }}/${{ needs.determine-context.outputs.application }}:${{ github.sha }} \
-            --project=${{ needs.determine-context.outputs.project_id }} \
-            . || {
-              echo "Build failed. Using fallback image."
-              echo "CONTAINER_IMAGE=gcr.io/google-samples/hello-app:1.0" >> $GITHUB_ENV
-              exit 0
-            }
-          
-          echo "CONTAINER_IMAGE=gcr.io/${{ needs.determine-context.outputs.project_id }}/${{ needs.determine-context.outputs.application }}:${{ github.sha }}" >> $GITHUB_ENV
-      
-      - name: Deploy to Cloud Run
-        run: |
-          echo "Deploying to Cloud Run: ${{ needs.determine-context.outputs.service_name }}"
-          
-          # Ensure Cloud Run API is enabled
-          gcloud services enable run.googleapis.com --project=${{ needs.determine-context.outputs.project_id }}
-          
-          # Check if service exists and create/update accordingly
-          if gcloud run services describe ${{ needs.determine-context.outputs.service_name }} \
-            --project=${{ needs.determine-context.outputs.project_id }} \
-            --region=${{ env.REGION }} 2>/dev/null; then
-          
-            echo "Updating existing service"
-            COMMAND="update"
-          else
-            echo "Creating new service"
-            COMMAND="deploy"
-          fi
-          
-          # Use CONTAINER_IMAGE environment variable set in the build step
-          CONTAINER_IMAGE=${CONTAINER_IMAGE:-gcr.io/google-samples/hello-app:1.0}
-          
-          # Deploy the container to Cloud Run
-          gcloud run services $COMMAND ${{ needs.determine-context.outputs.service_name }} \
-            --project=${{ needs.determine-context.outputs.project_id }} \
-            --image=$CONTAINER_IMAGE \
-            --region=${{ env.REGION }} \
-            --platform=managed \
-            --allow-unauthenticated
-      
-      - name: Post-Deployment Tests
-        run: |
-          echo "Running post-deployment tests..."
-          
-          # Get the service URL
-          SERVICE_URL=$(gcloud run services describe ${{ needs.determine-context.outputs.service_name }} \
-            --project=${{ needs.determine-context.outputs.project_id }} \
-            --region=${{ env.REGION }} \
-            --format="get(status.url)")
-          
-          # Wait a moment for the service to stabilize
-          sleep 10
-          
-          # Test that the service is responding
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" $SERVICE_URL || echo "Failed to connect")
-          
-          echo "Service URL: $SERVICE_URL"
-          echo "HTTP Status: $HTTP_STATUS"
-          
-          if [[ "$HTTP_STATUS" == "200" ]]; then
-            echo "✅ Service is up and running"
-          else
-            echo "⚠️ Service returned non-200 status: $HTTP_STATUS"
-            # We don't fail the workflow, as some services might return different statuses by design
-          fi
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ needs.determine-context.outputs.project_id }}
