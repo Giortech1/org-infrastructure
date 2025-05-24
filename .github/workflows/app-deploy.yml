@@ -246,36 +246,34 @@ jobs:
           PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
           REGION="${{ needs.determine-context.outputs.region }}"
           
-          # Remove existing bindings to avoid duplicates
-          echo "Removing existing IAM bindings..."
-          gcloud run services remove-iam-policy-binding $SERVICE_NAME \
+          echo "Configuring service access for $ENVIRONMENT environment..."
+          
+          # Always grant access to the GitHub Actions service account
+          echo "Granting access to GitHub Actions service account..."
+          gcloud run services add-iam-policy-binding $SERVICE_NAME \
             --project=$PROJECT_ID \
             --region=$REGION \
-            --member="allUsers" \
-            --role="roles/run.invoker" 2>/dev/null || true
+            --member="serviceAccount:github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com" \
+            --role="roles/run.invoker" || echo "Service account binding may already exist"
           
-          # For dev and UAT environments - allow public access
+          # Try to configure public access for dev/UAT, but continue if it fails due to org policy
           if [[ "$ENVIRONMENT" == "dev" || "$ENVIRONMENT" == "uat" ]]; then
-            echo "Configuring public access for $ENVIRONMENT environment..."
-            gcloud run services add-iam-policy-binding $SERVICE_NAME \
+            echo "Attempting to configure public access for $ENVIRONMENT environment..."
+            if gcloud run services add-iam-policy-binding $SERVICE_NAME \
               --project=$PROJECT_ID \
               --region=$REGION \
               --member="allUsers" \
-              --role="roles/run.invoker"
-          
-          # For production - more controlled access
+              --role="roles/run.invoker" 2>/dev/null; then
+              echo "✅ Public access configured successfully"
+            else
+              echo "⚠️  Public access blocked by organization policy - service will require authentication"
+              echo "The service is deployed but will require authenticated requests"
+            fi
           else
-            echo "Configuring restricted access for production environment..."
-            
-            # Grant access to service account
-            gcloud run services add-iam-policy-binding $SERVICE_NAME \
-              --project=$PROJECT_ID \
-              --region=$REGION \
-              --member="serviceAccount:github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-              --role="roles/run.invoker"
+            echo "Production environment - using authenticated access only"
           fi
           
-          echo "IAM policy configured successfully."
+          echo "Service access configuration completed."
       
       - name: Post-Deployment Tests
         run: |
