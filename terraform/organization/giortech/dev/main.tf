@@ -1,4 +1,5 @@
 terraform {
+  required_version = ">= 1.0"
   required_providers {
     google = {
       source  = "hashicorp/google"
@@ -61,5 +62,3 @@ output "bucket_name" {
   value       = google_storage_bucket.storage.name
   description = "Storage bucket name"
 }
-
-# Note: cost_control_dashboards output is in cost_controls.tf to avoid duplication

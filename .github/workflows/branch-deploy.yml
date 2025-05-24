@@ -178,6 +178,26 @@ jobs:
             exit 1
           fi
       
+      - name: Debug Terraform Configuration
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          echo "=== Terraform Configuration Debug ==="
+          echo "Working directory: $(pwd)"
+          echo "Files in directory:"
+          ls -la
+          echo ""
+          echo "=== Checking main.tf syntax ==="
+          if [ -f "main.tf" ]; then
+            echo "main.tf exists, checking syntax..."
+            terraform fmt -check=true main.tf || echo "Format issues found"
+            terraform validate || echo "Validation issues found"
+          else
+            echo "main.tf not found!"
+          fi
+          echo ""
+          echo "=== Checking for problematic files ==="
+          find . -name "*.tf" -exec echo "File: {}" \; -exec head -10 {} \; -exec echo "---" \;
+      
       - name: Terraform Init
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         env:
