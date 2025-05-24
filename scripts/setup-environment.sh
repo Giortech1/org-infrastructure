@@ -132,7 +132,7 @@ if ! command -v gcloud &> /dev/null; then
     exit 1
 fi
 
-if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" >/dev/null 2>&1; then
+if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q "@"; then
     echo "❌ You are not authenticated with gcloud. Please run 'gcloud auth login'"
     exit 1
 fi
