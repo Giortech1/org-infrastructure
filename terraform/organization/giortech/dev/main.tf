@@ -51,22 +51,6 @@ resource "google_storage_bucket" "storage" {
   depends_on = [google_project_service.required_apis]
 }
 
-# Include cost controls
-module "cost_controls" {
-  source = "../../../modules/cost_controls"
-  
-  project_id         = "giortech-dev-project"
-  application        = "giortech"
-  environment        = "dev"
-  region             = "us-central1"
-  billing_account_id = "0141E4-398D5E-91A063"
-  budget_amount      = 50
-  alert_email_address = "devops@academyaxis.io"
-  create_budget      = true
-  
-  depends_on = [google_project_service.required_apis]
-}
-
 # Outputs
 output "project_id" {
   value       = "giortech-dev-project"
@@ -78,7 +62,4 @@ output "bucket_name" {
   description = "Storage bucket name"
 }
 
-output "cost_control_dashboards" {
-  value = module.cost_controls.dashboards
-  description = "Cost control dashboard URLs"
-}
+# Note: cost_control_dashboards output is in cost_controls.tf to avoid duplication
