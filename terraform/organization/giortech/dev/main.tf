@@ -36,19 +36,19 @@ resource "google_project_service" "required_apis" {
     "billingbudgets.googleapis.com",
     "certificatemanager.googleapis.com"
   ])
-  
-  project = "giortech-dev-project"
-  service = each.value
+
+  project            = "giortech-dev-project"
+  service            = each.value
   disable_on_destroy = false
 }
 
 # Storage bucket for basic infrastructure
 resource "google_storage_bucket" "storage" {
-  name          = "giortech-dev-project-bucket"
-  location      = "us-central1"
-  force_destroy = true
+  name                        = "giortech-dev-project-bucket"
+  location                    = "us-central1"
+  force_destroy               = true
   uniform_bucket_level_access = true
-  
+
   depends_on = [google_project_service.required_apis]
 }
 
