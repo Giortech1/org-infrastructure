@@ -117,10 +117,11 @@ jobs:
           echo "  Project ID: $PROJECT_ID"
           echo "  Project Number: $PROJECT_NUMBER"
           echo "  Region: $REGION"
-  
+
   deploy-infrastructure:
     needs: determine-context
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     
     permissions:
       contents: 'read'
@@ -130,7 +131,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      # Authenticate with Google Cloud FIRST - before Terraform init
       - name: Authenticate to Google Cloud
         id: auth
         uses: google-github-actions/auth@v2
@@ -183,6 +183,34 @@ jobs:
             exit 1
           fi
       
+      - name: Clean Any Existing Locks
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          echo "🧹 Cleaning any existing state locks..."
+          
+          LOCK_FILE="gs://academyaxis-terraform-state/giortech/dev/default.tflock"
+          
+          # Check if lock file exists and remove it
+          if gcloud storage ls "$LOCK_FILE" 2>/dev/null; then
+            echo "🔒 Found existing lock file, removing it..."
+            gcloud storage rm "$LOCK_FILE" || echo "Could not remove lock file"
+            sleep 2
+          else
+            echo "✅ No lock file found"
+          fi
+          
+          # Also try force unlock with known problematic lock IDs
+          echo "🔓 Attempting to clear any stuck locks..."
+          PROBLEM_LOCKS=("1748333964556513" "1748108093205369")
+          
+          for lock_id in "${PROBLEM_LOCKS[@]}"; do
+            echo "Trying to unlock: $lock_id"
+            terraform init -reconfigure -no-color >/dev/null 2>&1 || true
+            terraform force-unlock -force "$lock_id" 2>/dev/null || echo "Lock $lock_id not found or already unlocked"
+          done
+          
+          echo "✅ Lock cleanup completed"
+      
       - name: Terraform Init with State Recovery
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         timeout-minutes: 5
@@ -197,17 +225,15 @@ jobs:
           rm -rf .terraform/
           rm -f .terraform.lock.hcl
           
-          # Set Terraform log level for debugging
-          export TF_LOG=INFO
-          
           # Try init with timeout
-          timeout 300 terraform init -reconfigure -upgrade -no-color || {
-            echo "Init timed out or failed, trying alternative approach..."
+          echo "Running terraform init..."
+          if ! timeout 300 terraform init -reconfigure -upgrade -no-color; then
+            echo "Init failed or timed out, trying alternative approach..."
             terraform init -backend=false -no-color
             terraform init -reconfigure -no-color
-          }
+          fi
           
-          echo "Terraform initialization completed"
+          echo "✅ Terraform initialization completed"
       
       - name: Pre-Plan Diagnostics
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
@@ -219,9 +245,11 @@ jobs:
           terraform version
           
           # Validate configuration
+          echo "Validating Terraform configuration..."
           terraform validate -no-color
           
           # Check state (if it exists)
+          echo "Checking existing state..."
           if terraform state list 2>/dev/null; then
             echo "Current resources in state:"
             terraform state list
@@ -233,7 +261,7 @@ jobs:
           echo "Checking provider configuration..."
           terraform providers -no-color
           
-          echo "Pre-plan diagnostics completed"
+          echo "✅ Pre-plan diagnostics completed"
       
       - name: Terraform Plan with Lock Handling
         id: tf-plan
@@ -251,93 +279,119 @@ jobs:
             local attempt=$1
             echo "🔄 Plan attempt $attempt/3"
             
-            if terraform plan -detailed-exitcode -out=tfplan -no-color -lock-timeout=2m 2>&1 | tee plan.log; then
-              echo "✅ Plan succeeded on attempt $attempt"
+            # Run terraform plan and capture both exit code and output
+            set +e  # Don't exit on error
+            terraform plan -detailed-exitcode -out=tfplan -no-color -lock-timeout=30s 2>&1 | tee plan.log
+            local plan_exit=${PIPESTATUS[0]}
+            set -e  # Re-enable exit on error
+            
+            if [ $plan_exit -eq 0 ] || [ $plan_exit -eq 2 ]; then
+              echo "✅ Plan succeeded with exit code: $plan_exit"
               return 0
             else
-              local exit_code=$?
-              echo "❌ Plan failed on attempt $attempt (exit code: $exit_code)"
+              echo "❌ Plan failed with exit code: $plan_exit"
               
-              # Check if it's a lock issue
+              # Check if it's specifically a lock issue
               if grep -q "Error acquiring the state lock" plan.log; then
-                echo "🔒 State lock detected, extracting lock ID..."
+                echo "🔒 State lock detected!"
                 
-                # Extract lock ID more reliably
-                LOCK_ID=$(grep -A 10 "Lock Info:" plan.log | grep "ID:" | awk '{print $2}' | head -1)
+                # Extract lock ID from the log
+                LOCK_ID=$(grep -A 20 "Lock Info:" plan.log | grep -E "^\s*ID:" | awk '{print $2}' | head -1)
                 
                 if [ -n "$LOCK_ID" ] && [ "$LOCK_ID" != "" ]; then
-                  echo "🔓 Found lock ID: $LOCK_ID - attempting force unlock..."
+                  echo "🔓 Attempting to force unlock with Lock ID: $LOCK_ID"
                   
-                  if terraform force-unlock -force "$LOCK_ID"; then
-                    echo "✅ Successfully unlocked state"
-                    sleep 5  # Wait a moment for the unlock to propagate
+                  if terraform force-unlock -force "$LOCK_ID" 2>&1; then
+                    echo "✅ Force unlock completed"
+                    sleep 3  # Wait for unlock to propagate
                     return 1  # Indicate retry needed
                   else
                     echo "❌ Force unlock failed"
-                    
-                    # Try removing lock file directly
-                    echo "🗑️ Attempting to remove lock file directly..."
-                    if gcloud storage rm "gs://academyaxis-terraform-state/giortech/dev/default.tflock" 2>/dev/null; then
-                      echo "✅ Lock file removed directly"
-                      sleep 5
-                      return 1  # Indicate retry needed
-                    else
-                      echo "❌ Could not remove lock file directly"
-                    fi
+                  fi
+                  
+                  # Alternative: Try removing lock file directly
+                  echo "🗑️ Attempting direct lock file removal..."
+                  LOCK_PATH="gs://academyaxis-terraform-state/giortech/dev/default.tflock"
+                  if gcloud storage rm "$LOCK_PATH" 2>/dev/null; then
+                    echo "✅ Lock file removed directly"
+                    sleep 3
+                    return 1  # Indicate retry needed
+                  else
+                    echo "❌ Could not remove lock file directly"
                   fi
                 else
-                  echo "❌ Could not extract lock ID from error"
+                  echo "❌ Could not extract lock ID from error message"
+                  echo "Lock info from log:"
+                  grep -A 10 "Lock Info:" plan.log || echo "No lock info found"
                 fi
+              else
+                echo "💥 Plan failed for non-lock reasons"
+                echo "Error details:"
+                tail -20 plan.log
               fi
               
-              return $exit_code
+              return $plan_exit
             fi
           }
           
           # Try plan with up to 3 attempts
+          FINAL_SUCCESS=false
           for i in {1..3}; do
             if attempt_plan $i; then
-              break  # Success
+              echo "🎉 Plan succeeded on attempt $i"
+              FINAL_SUCCESS=true
+              break
             elif [ $? -eq 1 ]; then
-              echo "🔄 Retrying plan after lock handling..."
-              continue  # Retry
+              echo "🔄 Retrying plan after lock handling... (attempt $i)"
+              continue
             else
-              echo "💥 Plan failed for non-lock reasons"
-              cat plan.log
-              exit 1
+              echo "💥 Plan failed permanently on attempt $i"
+              break
             fi
           done
           
-          # Check final plan results
-          if [ -f "tfplan" ]; then
-            echo "📋 Plan file created successfully"
-            
-            # Show plan summary
-            echo "=== PLAN SUMMARY ==="
-            terraform show -no-color tfplan | head -50
+          if [ "$FINAL_SUCCESS" = true ]; then
+            # Verify plan file was created
+            if [ -f "tfplan" ]; then
+              echo "📋 Plan file created successfully"
+              
+              # Show plan summary (first 30 lines)
+              echo "=== PLAN SUMMARY ==="
+              terraform show -no-color tfplan | head -30
+              echo "=== END PLAN SUMMARY ==="
+            else
+              echo "❌ Plan appeared to succeed but no plan file was generated"
+              exit 1
+            fi
           else
-            echo "❌ No plan file generated"
+            echo "💥 All plan attempts failed"
+            echo "=== FINAL ERROR LOG ==="
+            cat plan.log
             exit 1
           fi
       
       - name: Terraform Apply
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         timeout-minutes: 15
-        if: steps.tf-plan.conclusion == 'success'
+        if: success()
         run: |
           echo "Applying Terraform changes..."
           
           # Check if plan file exists
           if [ ! -f "tfplan" ]; then
-            echo "No plan file found, running apply without plan"
-            terraform apply -auto-approve -no-color
-          else
-            echo "Applying from plan file"
-            terraform apply -auto-approve tfplan -no-color
+            echo "❌ No plan file found, cannot apply"
+            exit 1
           fi
           
+          echo "Applying from plan file..."
+          terraform apply -auto-approve tfplan -no-color
+          
+          echo "✅ Terraform apply completed"
+      
       - name: Show Terraform Outputs
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        if: success()
         run: |
-          echo "Terraform outputs:"
-          terraform output || echo "No outputs defined"
+          echo "=== TERRAFORM OUTPUTS ==="
+          terraform output -no-color || echo "No outputs defined"
+          echo "=== END OUTPUTS ==="
