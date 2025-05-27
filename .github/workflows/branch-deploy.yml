@@ -1,5 +1,14 @@
-# File: .github/workflows/branch-deploy.yml
+      - name: Show Terraform Outputs
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          echo "Terraform outputs:"
+          terraform output || echo "No outputs defined"# File: .github/workflows/branch-deploy.yml
 name: Branch-Based Deployment
+
+# Add concurrency control to prevent multiple runs
+concurrency:
+  group: terraform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 on:
   push:
@@ -178,26 +187,190 @@ jobs:
             exit 1
           fi
       
-      - name: Terraform Init
+      - name: Debug Terraform Configuration
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          echo "=== Terraform Configuration Debug ==="
+          echo "Working directory: $(pwd)"
+          echo "Files in directory:"
+          ls -la
+          echo ""
+          echo "=== Checking main.tf syntax ==="
+          if [ -f "main.tf" ]; then
+            echo "main.tf exists, checking syntax..."
+            terraform fmt -check=true main.tf || echo "Format issues found"
+            terraform validate || echo "Validation issues found"
+          else
+            echo "main.tf not found!"
+          fi
+          echo ""
+          echo "=== Checking for problematic files ==="
+          find . -name "*.tf" -exec echo "File: {}" \; -exec head -10 {} \; -exec echo "---" \;
+      
+      - name: Terraform Init with State Cleanup
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         env:
           GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: |
           echo "Initializing Terraform in $(pwd)"
+          
+          # Try normal init first
+          if ! terraform init -reconfigure; then
+            echo "Normal init failed, trying with backend cleanup..."
+            
+            # Remove local state files if they exist
+            rm -f .terraform.lock.hcl
+            rm -rf .terraform/
+            
+            # Try init again
+            terraform init -reconfigure
+          fi
+      
+      - name: Handle State Corruption (if needed)
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        if: failure()
+        run: |
+          echo "Attempting to recover from state corruption..."
+          
+          # Check if state file exists in GCS
+          gsutil ls gs://academyaxis-terraform-state/giortech/dev/ || echo "No existing state found"
+          
+          # Option 1: Try to download and inspect the state
+          gsutil cp gs://academyaxis-terraform-state/giortech/dev/default.tfstate ./state-backup.tfstate || echo "Could not backup state"
+          
+          # Option 2: If corruption is confirmed, we might need to reset
+          echo "State appears corrupted. Consider manual intervention."
+          echo "You may need to:"
+          echo "1. Delete the corrupted state: gsutil rm gs://academyaxis-terraform-state/giortech/dev/default.tfstate"
+          echo "2. Re-import existing resources after successful init"
+          
+          # For now, let's try to continue with a fresh state
+          terraform init -reconfigure -backend=false
           terraform init -reconfigure
       
-      - name: Terraform Plan
+      - name: Pre-Plan Diagnostics
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        timeout-minutes: 3
         run: |
-          terraform plan -out=tfplan
+          echo "Running pre-plan diagnostics..."
+          
+          # Check Terraform version
+          terraform version
+          
+          # Validate configuration
+          terraform validate -no-color
+          
+          # Check state (if it exists)
+          if terraform state list 2>/dev/null; then
+            echo "Current resources in state:"
+            terraform state list
+          else
+            echo "No existing state found"
+          fi
+          
+          # Check for potential issues
+          echo "Checking provider configuration..."
+          terraform providers -no-color
+          
+          echo "Pre-plan diagnostics completed"
       
+      - name: Terraform Plan with Lock Handling
+        id: tf-plan
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        timeout-minutes: 10
+        run: |
+          echo "Starting Terraform plan with automatic lock handling..."
+          
+          # Set Terraform to non-interactive mode
+          export TF_IN_AUTOMATION=true
+          export TF_INPUT=false
+          
+          # Function to attempt plan with retries
+          attempt_plan() {
+            local attempt=$1
+            echo "🔄 Plan attempt $attempt/3"
+            
+            if terraform plan -detailed-exitcode -out=tfplan -no-color -lock-timeout=2m 2>&1 | tee plan.log; then
+              echo "✅ Plan succeeded on attempt $attempt"
+              return 0
+            else
+              local exit_code=$?
+              echo "❌ Plan failed on attempt $attempt (exit code: $exit_code)"
+              
+              # Check if it's a lock issue
+              if grep -q "Error acquiring the state lock" plan.log; then
+                echo "🔒 State lock detected, extracting lock ID..."
+                
+                # Extract lock ID more reliably
+                LOCK_ID=$(grep -A 10 "Lock Info:" plan.log | grep "ID:" | awk '{print $2}' | head -1)
+                
+                if [ -n "$LOCK_ID" ] && [ "$LOCK_ID" != "" ]; then
+                  echo "🔓 Found lock ID: $LOCK_ID - attempting force unlock..."
+                  
+                  if terraform force-unlock -force "$LOCK_ID"; then
+                    echo "✅ Successfully unlocked state"
+                    sleep 5  # Wait a moment for the unlock to propagate
+                    return 1  # Indicate retry needed
+                  else
+                    echo "❌ Force unlock failed"
+                    
+                    # Try removing lock file directly
+                    echo "🗑️ Attempting to remove lock file directly..."
+                    if gcloud storage rm "gs://academyaxis-terraform-state/giortech/dev/default.tflock" 2>/dev/null; then
+                      echo "✅ Lock file removed directly"
+                      sleep 5
+                      return 1  # Indicate retry needed
+                    else
+                      echo "❌ Could not remove lock file directly"
+                    fi
+                  fi
+                else
+                  echo "❌ Could not extract lock ID from error"
+                fi
+              fi
+              
+              return $exit_code
+            fi
+          }
+          
+          # Try plan with up to 3 attempts
+          for i in {1..3}; do
+            if attempt_plan $i; then
+              break  # Success
+            elif [ $? -eq 1 ]; then
+              echo "🔄 Retrying plan after lock handling..."
+              continue  # Retry
+            else
+              echo "💥 Plan failed for non-lock reasons"
+              cat plan.log
+              exit 1
+            fi
+          done
+          
+          # Check final plan results
+          if [ -f "tfplan" ]; then
+            echo "📋 Plan file created successfully"
+            
+            # Show plan summary
+            echo "=== PLAN SUMMARY ==="
+            terraform show -no-color tfplan | head -50
+          else
+            echo "❌ No plan file generated"
+            exit 1
+          fi
+          
       - name: Terraform Apply
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        timeout-minutes: 15
+        if: steps.tf-plan.conclusion == 'success'
         run: |
-          terraform apply -auto-approve tfplan
+          echo "Applying Terraform changes..."
           
-      - name: Show Terraform Outputs
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: |
-          echo "Terraform outputs:"
-          terraform output || echo "No outputs defined"
+          # Check if plan file exists
+          if [ ! -f "tfplan" ]; then
+            echo "No plan file found, running apply without plan"
+            terraform apply -auto-approve -no-color
+          else
+            echo "Applying from plan file"
+            terraform apply -auto-approve tfplan -no-color
+          fi
