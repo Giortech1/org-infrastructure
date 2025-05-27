@@ -1,16 +1,20 @@
+# terraform/modules/cost_controls/variables.tf
 variable "project_id" {
   description = "The GCP project ID"
   type        = string
 }
 
 variable "application" {
-  description = "The application name"
+  description = "Application name (giortech, waspwallet, academyaxis)"
   type        = string
-  default     = "academyaxis"
+  validation {
+    condition     = contains(["giortech", "waspwallet", "academyaxis"], var.application)
+    error_message = "Application must be one of: giortech, waspwallet, academyaxis."
+  }
 }
 
 variable "environment" {
-  description = "The environment (dev, uat, prod)"
+  description = "Environment (dev, uat, prod)"
   type        = string
   validation {
     condition     = contains(["dev", "uat", "prod"], var.environment)
@@ -19,7 +23,7 @@ variable "environment" {
 }
 
 variable "region" {
-  description = "The GCP region"
+  description = "GCP region"
   type        = string
   default     = "us-central1"
 }
@@ -30,18 +34,47 @@ variable "billing_account_id" {
 }
 
 variable "budget_amount" {
-  description = "Monthly budget amount in USD"
+  description = "Budget amount in USD"
   type        = number
+  validation {
+    condition     = var.budget_amount > 0 && var.budget_amount <= 300
+    error_message = "Budget amount must be between 1 and 300 USD."
+  }
 }
 
 variable "alert_email_address" {
-  description = "Email address for budget alerts"
+  description = "Email address for budget and monitoring alerts"
   type        = string
-  default     = "devops@academyaxis.io"
+  validation {
+    condition     = can(regex("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", var.alert_email_address))
+    error_message = "Please provide a valid email address."
+  }
 }
 
 variable "create_budget" {
-  description = "Whether to create the budget (avoid duplicates)"
+  description = "Whether to create budget (set to false if budget already exists)"
+  type        = bool
+  default     = true
+}
+
+variable "enable_cost_optimization" {
+  description = "Whether to enable automatic cost optimization features"
+  type        = bool
+  default     = true
+}
+
+variable "log_retention_days" {
+  description = "Number of days to retain logs (overrides environment default)"
+  type        = number
+  default     = null
+  validation {
+    condition     = var.log_retention_days == null || (var.log_retention_days >= 1 && var.log_retention_days <= 365)
+    error_message = "Log retention must be between 1 and 365 days."
+  }
+}
+
+variable "enable_alerts" {
+  description = "Whether to enable monitoring alerts"
   type        = bool
   default     = true
 }

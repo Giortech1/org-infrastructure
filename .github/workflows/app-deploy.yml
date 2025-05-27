@@ -1,4 +1,4 @@
-# File: .github/workflows/app-deploy.yml
+# .github/workflows/app-deploy.yml
 name: Deploy Application
 
 on:
@@ -86,12 +86,20 @@ jobs:
           APP="${{ steps.set-app.outputs.application }}"
           ENV="${{ steps.set-env.outputs.environment }}"
           
+          # Check if config file exists
           if [ ! -f ".github/config/project-config.yml" ]; then
             echo "::error::Configuration file not found: .github/config/project-config.yml"
+            echo "::error::Please ensure the config file is in the correct location"
             exit 1
           fi
           
-          # Extract values from config file using yq
+          # Validate YAML syntax
+          if ! yq eval '.' .github/config/project-config.yml > /dev/null; then
+            echo "::error::Invalid YAML syntax in project-config.yml"
+            exit 1
+          fi
+          
+          # Extract values from config file using yq with error handling
           PROJECT_ID=$(yq e ".$APP.$ENV.project_id" .github/config/project-config.yml)
           PROJECT_NUMBER=$(yq e ".$APP.$ENV.project_number" .github/config/project-config.yml)
           SERVICE_NAME=$(yq e ".$APP.$ENV.service_name" .github/config/project-config.yml)
@@ -100,6 +108,12 @@ jobs:
           MAX_INSTANCES=$(yq e ".$APP.$ENV.max_instances" .github/config/project-config.yml)
           MEMORY=$(yq e ".$APP.$ENV.memory" .github/config/project-config.yml)
           CPU=$(yq e ".$APP.$ENV.cpu" .github/config/project-config.yml)
+          
+          # Validate extracted values
+          if [[ "$PROJECT_ID" == "null" || -z "$PROJECT_ID" ]]; then
+            echo "::error::Project ID not found for $APP in $ENV environment"
+            exit 1
+          fi
           
           # Set outputs
           echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
@@ -112,7 +126,7 @@ jobs:
           echo "cpu=$CPU" >> $GITHUB_OUTPUT
           
           # Debug output
-          echo "Using configuration for $APP in $ENV environment:"
+          echo "✅ Configuration loaded for $APP in $ENV environment:"
           echo "  Project ID: $PROJECT_ID"
           echo "  Project Number: $PROJECT_NUMBER"
           echo "  Service Name: $SERVICE_NAME"
@@ -120,39 +134,8 @@ jobs:
           echo "  Resources: $CPU CPU, $MEMORY Memory"
           echo "  Scaling: $MIN_INSTANCES-$MAX_INSTANCES instances"
 
-  get-identity:
-    needs: determine-context
-    runs-on: ubuntu-latest
-    outputs:
-      wi_provider: ${{ steps.identity.outputs.wi_provider }}
-      sa_email: ${{ steps.identity.outputs.sa_email }}
-    
-    permissions:
-      contents: 'read'
-      id-token: 'write'
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Get Workload Identity Provider and Service Account
-        id: identity
-        run: |
-          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
-          PROJECT_NUMBER="${{ needs.determine-context.outputs.project_number }}"
-          
-          # Format Workload Identity Provider path
-          WI_PROVIDER="projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          SA_EMAIL="github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
-          
-          echo "wi_provider=$WI_PROVIDER" >> $GITHUB_OUTPUT
-          echo "sa_email=$SA_EMAIL" >> $GITHUB_OUTPUT
-          
-          echo "Using Workload Identity Provider: $WI_PROVIDER"
-          echo "Using Service Account: $SA_EMAIL"
-
   build-and-deploy:
-    needs: [determine-context, get-identity]
+    needs: determine-context
     runs-on: ubuntu-latest
     
     permissions:
@@ -166,118 +149,145 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ needs.get-identity.outputs.wi_provider }}
-          service_account: ${{ needs.get-identity.outputs.sa_email }}
+          workload_identity_provider: projects/${{ needs.determine-context.outputs.project_number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com
+          project_id: ${{ needs.determine-context.outputs.project_id }}
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ needs.determine-context.outputs.project_id }}
       
       - name: Verify GCP authentication and project
         run: |
-          echo "Current project info:"
-          gcloud config get-value project
-          gcloud projects describe ${{ needs.determine-context.outputs.project_id }} || echo "Project not found or not accessible"
+          echo "🔍 Verifying GCP authentication..."
+          echo "Current project: $(gcloud config get-value project)"
+          echo "Current account: $(gcloud config get-value account)"
+          
+          # Test project access
+          if gcloud projects describe ${{ needs.determine-context.outputs.project_id }} >/dev/null 2>&1; then
+            echo "✅ Project access verified"
+          else
+            echo "❌ Cannot access project ${{ needs.determine-context.outputs.project_id }}"
+            exit 1
+          fi
+      
+      - name: Enable required APIs
+        run: |
+          echo "🔧 Enabling required APIs..."
+          gcloud services enable \
+            cloudbuild.googleapis.com \
+            run.googleapis.com \
+            containerregistry.googleapis.com \
+            --project=${{ needs.determine-context.outputs.project_id }}
       
       - name: Build Container
         run: |
-          echo "Building container for ${{ needs.determine-context.outputs.application }} (${{ needs.determine-context.outputs.environment }})"
-          
-          # Ensure cloudbuild API is enabled
-          gcloud services enable cloudbuild.googleapis.com --project=${{ needs.determine-context.outputs.project_id }}
+          echo "🏗️ Building container for ${{ needs.determine-context.outputs.application }} (${{ needs.determine-context.outputs.environment }})"
           
           # Check if Dockerfile exists
           if [ ! -f "Dockerfile" ]; then
-            echo "Warning: Dockerfile not found at root. Using fallback image."
+            echo "⚠️ Dockerfile not found. Using fallback sample image."
             echo "CONTAINER_IMAGE=gcr.io/google-samples/hello-app:1.0" >> $GITHUB_ENV
             exit 0
           fi
           
-          # Submit the build to Cloud Build
-          gcloud builds submit \
-            --tag gcr.io/${{ needs.determine-context.outputs.project_id }}/${{ needs.determine-context.outputs.service_name }}:${{ github.sha }} \
-            --project=${{ needs.determine-context.outputs.project_id }} \
-            . || {
-              echo "Build failed. Using fallback image."
-              echo "CONTAINER_IMAGE=gcr.io/google-samples/hello-app:1.0" >> $GITHUB_ENV
-              exit 0
-            }
+          # Build image with Cloud Build
+          IMAGE_NAME="gcr.io/${{ needs.determine-context.outputs.project_id }}/${{ needs.determine-context.outputs.service_name }}:${{ github.sha }}"
           
-          echo "CONTAINER_IMAGE=gcr.io/${{ needs.determine-context.outputs.project_id }}/${{ needs.determine-context.outputs.service_name }}:${{ github.sha }}" >> $GITHUB_ENV
+          if gcloud builds submit \
+            --tag "$IMAGE_NAME" \
+            --project=${{ needs.determine-context.outputs.project_id }} \
+            --timeout=10m \
+            . ; then
+            echo "✅ Build successful"
+            echo "CONTAINER_IMAGE=$IMAGE_NAME" >> $GITHUB_ENV
+          else
+            echo "⚠️ Build failed. Using fallback image."
+            echo "CONTAINER_IMAGE=gcr.io/google-samples/hello-app:1.0" >> $GITHUB_ENV
+          fi
       
       - name: Deploy to Cloud Run
         run: |
-          echo "Deploying to Cloud Run: ${{ needs.determine-context.outputs.service_name }}"
-            
-          # Ensure Cloud Run API is enabled
-          gcloud services enable run.googleapis.com --project=${{ needs.determine-context.outputs.project_id }}
-            
+          echo "🚀 Deploying to Cloud Run: ${{ needs.determine-context.outputs.service_name }}"
+          
+          # Set image to use
+          IMAGE_TO_DEPLOY="${CONTAINER_IMAGE:-gcr.io/google-samples/hello-app:1.0}"
+          echo "Using image: $IMAGE_TO_DEPLOY"
+          
           # Check if service exists and create/update accordingly
           if gcloud run services describe ${{ needs.determine-context.outputs.service_name }} \
             --project=${{ needs.determine-context.outputs.project_id }} \
-            --region=${{ needs.determine-context.outputs.region }} 2>/dev/null; then
+            --region=${{ needs.determine-context.outputs.region }} >/dev/null 2>&1; then
               
-            echo "Updating existing service"
+            echo "📝 Updating existing service"
             gcloud run services update ${{ needs.determine-context.outputs.service_name }} \
               --project=${{ needs.determine-context.outputs.project_id }} \
-              --image=${CONTAINER_IMAGE:-gcr.io/google-samples/hello-app:1.0} \
+              --image="$IMAGE_TO_DEPLOY" \
               --region=${{ needs.determine-context.outputs.region }} \
               --memory=${{ needs.determine-context.outputs.memory }} \
               --cpu=${{ needs.determine-context.outputs.cpu }} \
               --min-instances=${{ needs.determine-context.outputs.min_instances }} \
-              --max-instances=${{ needs.determine-context.outputs.max_instances }}
+              --max-instances=${{ needs.determine-context.outputs.max_instances }} \
+              --timeout=300s \
+              --concurrency=80 \
+              --port=8080 \
+              --set-env-vars="ENVIRONMENT=${{ needs.determine-context.outputs.environment }}"
               
           else
-            echo "Creating new service"
-            gcloud run services deploy ${{ needs.determine-context.outputs.service_name }} \
+            echo "🆕 Creating new service"
+            gcloud run deploy ${{ needs.determine-context.outputs.service_name }} \
               --project=${{ needs.determine-context.outputs.project_id }} \
-              --image=${CONTAINER_IMAGE:-gcr.io/google-samples/hello-app:1.0} \
+              --image="$IMAGE_TO_DEPLOY" \
               --region=${{ needs.determine-context.outputs.region }} \
               --platform=managed \
               --memory=${{ needs.determine-context.outputs.memory }} \
               --cpu=${{ needs.determine-context.outputs.cpu }} \
               --min-instances=${{ needs.determine-context.outputs.min_instances }} \
-              --max-instances=${{ needs.determine-context.outputs.max_instances }}
+              --max-instances=${{ needs.determine-context.outputs.max_instances }} \
+              --timeout=300s \
+              --concurrency=80 \
+              --port=8080 \
+              --set-env-vars="ENVIRONMENT=${{ needs.determine-context.outputs.environment }}" \
+              --allow-unauthenticated
           fi
       
-      - name: Configure Cloud Run Service Access
+      - name: Configure Service Access
         run: |
           ENVIRONMENT="${{ needs.determine-context.outputs.environment }}"
           SERVICE_NAME="${{ needs.determine-context.outputs.service_name }}"
           PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
           REGION="${{ needs.determine-context.outputs.region }}"
           
-          echo "Configuring service access for $ENVIRONMENT environment..."
+          echo "🔐 Configuring service access for $ENVIRONMENT environment..."
           
-          # Always grant access to the GitHub Actions service account
-          echo "Granting access to GitHub Actions service account..."
-          gcloud run services add-iam-policy-binding $SERVICE_NAME \
+          # Remove existing bindings to avoid conflicts
+          gcloud run services remove-iam-policy-binding $SERVICE_NAME \
             --project=$PROJECT_ID \
             --region=$REGION \
-            --member="serviceAccount:github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-            --role="roles/run.invoker" || echo "Service account binding may already exist"
+            --member="allUsers" \
+            --role="roles/run.invoker" 2>/dev/null || true
           
-          # Try to configure public access for dev/UAT, but continue if it fails due to org policy
+          # Configure access based on environment
           if [[ "$ENVIRONMENT" == "dev" || "$ENVIRONMENT" == "uat" ]]; then
-            echo "Attempting to configure public access for $ENVIRONMENT environment..."
-            if gcloud run services add-iam-policy-binding $SERVICE_NAME \
+            echo "🌐 Configuring public access for $ENVIRONMENT environment"
+            gcloud run services add-iam-policy-binding $SERVICE_NAME \
               --project=$PROJECT_ID \
               --region=$REGION \
               --member="allUsers" \
-              --role="roles/run.invoker" 2>/dev/null; then
-              echo "✅ Public access configured successfully"
-            else
-              echo "⚠️  Public access blocked by organization policy - service will require authentication"
-              echo "The service is deployed but will require authenticated requests"
-            fi
+              --role="roles/run.invoker"
           else
-            echo "Production environment - using authenticated access only"
+            echo "🔒 Configuring restricted access for production environment"
+            gcloud run services add-iam-policy-binding $SERVICE_NAME \
+              --project=$PROJECT_ID \
+              --region=$REGION \
+              --member="serviceAccount:github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com" \
+              --role="roles/run.invoker"
           fi
-          
-          echo "Service access configuration completed."
       
-      - name: Post-Deployment Tests
+      - name: Post-Deployment Verification
         run: |
-          echo "Running post-deployment tests..."
+          echo "🧪 Running post-deployment verification..."
           
           # Get the service URL
           SERVICE_URL=$(gcloud run services describe ${{ needs.determine-context.outputs.service_name }} \
@@ -285,17 +295,36 @@ jobs:
             --region=${{ needs.determine-context.outputs.region }} \
             --format="get(status.url)")
           
-          # Wait a moment for the service to stabilize
-          sleep 10
+          echo "🌐 Service URL: $SERVICE_URL"
           
-          # Test that the service is responding
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" $SERVICE_URL || echo "Failed to connect")
+          # Wait for service to be ready
+          echo "⏳ Waiting for service to be ready..."
+          sleep 30
           
-          echo "Service URL: $SERVICE_URL"
-          echo "HTTP Status: $HTTP_STATUS"
+          # Test service health
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$SERVICE_URL" || echo "TIMEOUT")
+          
+          echo "📊 Health Check Results:"
+          echo "  URL: $SERVICE_URL"
+          echo "  Status: $HTTP_STATUS"
           
           if [[ "$HTTP_STATUS" == "200" ]]; then
-            echo "✅ Service is up and running"
+            echo "✅ Service is healthy and responding"
+          elif [[ "$HTTP_STATUS" == "403" ]]; then
+            echo "⚠️ Service deployed but access may be restricted (403)"
+          elif [[ "$HTTP_STATUS" == "TIMEOUT" ]]; then
+            echo "⚠️ Service health check timed out - may still be starting up"
           else
-            echo "⚠️ Service returned non-200 status: $HTTP_STATUS"
+            echo "⚠️ Service returned status: $HTTP_STATUS"
           fi
+          
+          # Log deployment summary
+          echo "📋 Deployment Summary:"
+          echo "  Application: ${{ needs.determine-context.outputs.application }}"
+          echo "  Environment: ${{ needs.determine-context.outputs.environment }}"
+          echo "  Project: ${{ needs.determine-context.outputs.project_id }}"
+          echo "  Service: ${{ needs.determine-context.outputs.service_name }}"
+          echo "  Region: ${{ needs.determine-context.outputs.region }}"
+          echo "  Image: ${CONTAINER_IMAGE:-gcr.io/google-samples/hello-app:1.0}"
+          echo "  Resources: ${{ needs.determine-context.outputs.cpu }} CPU, ${{ needs.determine-context.outputs.memory }} Memory"
+          echo "  Scaling: ${{ needs.determine-context.outputs.min_instances }}-${{ needs.determine-context.outputs.max_instances }} instances"
