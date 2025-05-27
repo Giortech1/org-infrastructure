@@ -1,0 +1,160 @@
+# File: .github/workflows/debug-terraform.yml
+name: Debug Terraform Issues
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to debug'
+        required: true
+        default: 'dev'
+        type: choice
+        options:  
+          - dev
+          - uat
+          - prod
+
+jobs:
+  debug-terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set variables
+        id: vars
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          PROJECT_ID="giortech-${ENV}-project"
+          
+          case $ENV in
+            dev) PROJECT_NUMBER="653675374627" ;;
+            uat) PROJECT_NUMBER="28962750525" ;;
+            prod) PROJECT_NUMBER="371831144642" ;;
+          esac
+          
+          echo "env=$ENV" >> $GITHUB_OUTPUT
+          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
+          echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/${{ steps.vars.outputs.project_number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-sa@${{ steps.vars.outputs.project_id }}.iam.gserviceaccount.com
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Debug Environment
+        working-directory: terraform/organization/giortech/${{ steps.vars.outputs.env }}
+        timeout-minutes: 2
+        run: |
+          echo "=== ENVIRONMENT DEBUG ==="
+          echo "Working directory: $(pwd)"
+          echo "User: $(whoami)"
+          echo "Date: $(date)"
+          echo "Available memory: $(free -h)"
+          echo "Available disk: $(df -h .)"
+          
+          echo "=== AUTHENTICATION DEBUG ==="
+          echo "Current GCP project: $(gcloud config get-value project)"
+          echo "Current GCP account: $(gcloud config get-value account)"
+          gcloud auth list --filter=status:ACTIVE
+          
+          echo "=== PROJECT ACCESS DEBUG ==="
+          gcloud projects describe ${{ steps.vars.outputs.project_id }} --format="value(projectId,name,lifecycleState)"
+          
+          echo "=== TERRAFORM FILES DEBUG ==="
+          ls -la
+          echo "main.tf exists: $(test -f main.tf && echo 'YES' || echo 'NO')"
+          if [ -f main.tf ]; then
+            echo "main.tf first 20 lines:"
+            head -20 main.tf
+          fi
+      
+      - name: Debug Terraform Configuration  
+        working-directory: terraform/organization/giortech/${{ steps.vars.outputs.env }}
+        timeout-minutes: 2
+        run: |
+          echo "=== TERRAFORM VERSION ==="
+          terraform version
+          
+          echo "=== TERRAFORM CONFIGURATION VALIDATION ==="
+          terraform fmt -check=true . || echo "Format issues found"
+          terraform validate || echo "Validation failed"
+          
+          echo "=== TERRAFORM PROVIDERS ==="
+          terraform providers
+      
+      - name: Debug Terraform Init
+        working-directory: terraform/organization/giortech/${{ steps.vars.outputs.env }}
+        timeout-minutes: 3
+        env:
+          TF_LOG: INFO
+        run: |
+          echo "=== TERRAFORM INIT DEBUG ==="
+          rm -rf .terraform/ .terraform.lock.hcl
+          
+          echo "Initializing with verbose logging..."
+          terraform init -reconfigure -no-color
+          
+          echo "=== BACKEND STATUS ==="
+          terraform show -no-color || echo "No state to show"
+          
+          echo "=== STATE LIST ==="
+          terraform state list || echo "No resources in state"
+      
+      - name: Debug Simple Plan (No Output)
+        working-directory: terraform/organization/giortech/${{ steps.vars.outputs.env }}
+        timeout-minutes: 2
+        env:
+          TF_LOG: DEBUG
+          TF_IN_AUTOMATION: "true"
+          TF_INPUT: "false"
+        run: |
+          echo "=== SIMPLE PLAN TEST ==="
+          echo "Running plan with 2-minute timeout and debug logging..."
+          
+          # Try plan without writing output file first
+          timeout 120 terraform plan -no-color -detailed-exitcode || {
+            EXIT_CODE=$?
+            echo "Plan command timed out or failed with exit code: $EXIT_CODE"
+            
+            # Check what processes are running
+            echo "=== PROCESS DEBUG ==="
+            ps aux | grep terraform || echo "No terraform processes"
+            ps aux | grep gcloud || echo "No gcloud processes"  
+            
+            exit $EXIT_CODE
+          }
+      
+      - name: Debug API Calls
+        working-directory: terraform/organization/giortech/${{ steps.vars.outputs.env }}
+        timeout-minutes: 1
+        run: |
+          echo "=== API CONNECTIVITY TEST ==="
+          
+          # Test basic GCP API connectivity
+          echo "Testing Cloud Resource Manager API..."
+          gcloud projects describe ${{ steps.vars.outputs.project_id }} --format="value(projectId)" || echo "API call failed"
+          
+          echo "Testing Storage API..."
+          gcloud storage ls gs://academyaxis-terraform-state/ --max-items=5 || echo "Storage API failed"
+          
+          echo "Testing IAM API..."
+          gcloud iam service-accounts list --project=${{ steps.vars.outputs.project_id }} --limit=1 || echo "IAM API failed"
+          
+          echo "=== TERRAFORM PROVIDER TEST ==="
+          # Test if terraform can reach Google APIs
+          terraform console <<< "data.google_project.current" || echo "Provider test failed"
