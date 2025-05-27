@@ -211,58 +211,6 @@ jobs:
           
           echo "✅ Lock cleanup completed"
       
-      - name: Terraform Init with State Recovery
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        timeout-minutes: 5
-        env:
-          GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
-          TF_IN_AUTOMATION: "true"
-          TF_INPUT: "false"
-        run: |
-          echo "Initializing Terraform in $(pwd)"
-          
-          # Clean local terraform files first
-          rm -rf .terraform/
-          rm -f .terraform.lock.hcl
-          
-          # Try init with timeout
-          echo "Running terraform init..."
-          if ! timeout 300 terraform init -reconfigure -upgrade -no-color; then
-            echo "Init failed or timed out, trying alternative approach..."
-            terraform init -backend=false -no-color
-            terraform init -reconfigure -no-color
-          fi
-          
-          echo "✅ Terraform initialization completed"
-      
-      - name: Pre-Plan Diagnostics
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        timeout-minutes: 3
-        run: |
-          echo "Running pre-plan diagnostics..."
-          
-          # Check Terraform version
-          terraform version
-          
-          # Validate configuration
-          echo "Validating Terraform configuration..."
-          terraform validate -no-color
-          
-          # Check state (if it exists)
-          echo "Checking existing state..."
-          if terraform state list 2>/dev/null; then
-            echo "Current resources in state:"
-            terraform state list
-          else
-            echo "No existing state found"
-          fi
-          
-          # Check for potential issues
-          echo "Checking provider configuration..."
-          terraform providers -no-color
-          
-          echo "✅ Pre-plan diagnostics completed"
-      
       - name: Terraform Plan with Lock Handling
         id: tf-plan
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
@@ -274,14 +222,63 @@ jobs:
           export TF_IN_AUTOMATION=true
           export TF_INPUT=false
           
+          # Prepare variables for Terraform
+          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
+          ENVIRONMENT="${{ needs.determine-context.outputs.environment }}"
+          REGION="${{ needs.determine-context.outputs.region }}"
+          
+          echo "Using variables:"
+          echo "  Project ID: $PROJECT_ID"
+          echo "  Environment: $ENVIRONMENT" 
+          echo "  Region: $REGION"
+          
+          # Set budget amount based on environment
+          case "$ENVIRONMENT" in
+            "prod")
+              BUDGET_AMOUNT=100
+              ;;
+            "uat"|"dev"|*)
+              BUDGET_AMOUNT=50
+              ;;
+          esac
+          
+          # Create a temporary tfvars file with all required values
+          cat > auto.tfvars << EOF
+          project_id         = "$PROJECT_ID"
+          environment        = "$ENVIRONMENT"
+          region            = "$REGION"
+          billing_account_id = "0141E4-398D5E-91A063"
+          budget_amount     = $BUDGET_AMOUNT
+          
+          # Set these to false to avoid resource conflicts since they already exist
+          create_identity_pool   = false
+          create_service_account = false
+          deploy_cloud_run       = false
+          create_budget          = false
+          
+          # Use default container image
+          container_image = "gcr.io/google-samples/hello-app:1.0"
+          EOF
+          
+          echo "Created auto.tfvars file:"
+          cat auto.tfvars
+          
+          # Also check if terraform.tfvars exists and show its content
+          if [ -f "terraform.tfvars" ]; then
+            echo "Found existing terraform.tfvars:"
+            cat terraform.tfvars
+          else
+            echo "No existing terraform.tfvars found"
+          fi
+          
           # Function to attempt plan with retries
           attempt_plan() {
             local attempt=$1
             echo "🔄 Plan attempt $attempt/3"
             
-            # Run terraform plan and capture both exit code and output
+            # Run terraform plan with variables file
             set +e  # Don't exit on error
-            terraform plan -detailed-exitcode -out=tfplan -no-color -lock-timeout=30s 2>&1 | tee plan.log
+            terraform plan -detailed-exitcode -out=tfplan -no-color -lock-timeout=30s -var-file=auto.tfvars 2>&1 | tee plan.log
             local plan_exit=${PIPESTATUS[0]}
             set -e  # Re-enable exit on error
             
