@@ -1,8 +1,4 @@
-      - name: Show Terraform Outputs
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: |
-          echo "Terraform outputs:"
-          terraform output || echo "No outputs defined"# File: .github/workflows/branch-deploy.yml
+# File: .github/workflows/branch-deploy.yml
 name: Branch-Based Deployment
 
 # Add concurrency control to prevent multiple runs
@@ -187,66 +183,31 @@ jobs:
             exit 1
           fi
       
-      - name: Debug Terraform Configuration
+      - name: Terraform Init with State Recovery
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        run: |
-          echo "=== Terraform Configuration Debug ==="
-          echo "Working directory: $(pwd)"
-          echo "Files in directory:"
-          ls -la
-          echo ""
-          echo "=== Checking main.tf syntax ==="
-          if [ -f "main.tf" ]; then
-            echo "main.tf exists, checking syntax..."
-            terraform fmt -check=true main.tf || echo "Format issues found"
-            terraform validate || echo "Validation issues found"
-          else
-            echo "main.tf not found!"
-          fi
-          echo ""
-          echo "=== Checking for problematic files ==="
-          find . -name "*.tf" -exec echo "File: {}" \; -exec head -10 {} \; -exec echo "---" \;
-      
-      - name: Terraform Init with State Cleanup
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        timeout-minutes: 5
         env:
           GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          TF_IN_AUTOMATION: "true"
+          TF_INPUT: "false"
         run: |
           echo "Initializing Terraform in $(pwd)"
           
-          # Try normal init first
-          if ! terraform init -reconfigure; then
-            echo "Normal init failed, trying with backend cleanup..."
-            
-            # Remove local state files if they exist
-            rm -f .terraform.lock.hcl
-            rm -rf .terraform/
-            
-            # Try init again
-            terraform init -reconfigure
-          fi
-      
-      - name: Handle State Corruption (if needed)
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        if: failure()
-        run: |
-          echo "Attempting to recover from state corruption..."
+          # Clean local terraform files first
+          rm -rf .terraform/
+          rm -f .terraform.lock.hcl
           
-          # Check if state file exists in GCS
-          gsutil ls gs://academyaxis-terraform-state/giortech/dev/ || echo "No existing state found"
+          # Set Terraform log level for debugging
+          export TF_LOG=INFO
           
-          # Option 1: Try to download and inspect the state
-          gsutil cp gs://academyaxis-terraform-state/giortech/dev/default.tfstate ./state-backup.tfstate || echo "Could not backup state"
+          # Try init with timeout
+          timeout 300 terraform init -reconfigure -upgrade -no-color || {
+            echo "Init timed out or failed, trying alternative approach..."
+            terraform init -backend=false -no-color
+            terraform init -reconfigure -no-color
+          }
           
-          # Option 2: If corruption is confirmed, we might need to reset
-          echo "State appears corrupted. Consider manual intervention."
-          echo "You may need to:"
-          echo "1. Delete the corrupted state: gsutil rm gs://academyaxis-terraform-state/giortech/dev/default.tfstate"
-          echo "2. Re-import existing resources after successful init"
-          
-          # For now, let's try to continue with a fresh state
-          terraform init -reconfigure -backend=false
-          terraform init -reconfigure
+          echo "Terraform initialization completed"
       
       - name: Pre-Plan Diagnostics
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
@@ -358,7 +319,7 @@ jobs:
             echo "❌ No plan file generated"
             exit 1
           fi
-          
+      
       - name: Terraform Apply
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         timeout-minutes: 15
@@ -374,3 +335,9 @@ jobs:
             echo "Applying from plan file"
             terraform apply -auto-approve tfplan -no-color
           fi
+          
+      - name: Show Terraform Outputs
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          echo "Terraform outputs:"
+          terraform output || echo "No outputs defined"
