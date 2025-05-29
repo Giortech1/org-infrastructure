@@ -1,6 +1,11 @@
 # File: .github/workflows/branch-deploy.yml
 name: Branch-Based Deployment
 
+# Add concurrency control to prevent multiple runs
+concurrency:
+  group: terraform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
@@ -37,11 +42,15 @@ jobs:
     outputs:
       environment: ${{ steps.set-env.outputs.environment }}
       application: ${{ steps.set-app.outputs.application }}
-      project_id: ${{ steps.set-project.outputs.project_id }}
-      project_number: ${{ steps.set-project-number.outputs.project_number }}
+      project_id: ${{ steps.load-config.outputs.project_id }}
+      project_number: ${{ steps.load-config.outputs.project_number }}
+      region: ${{ steps.load-config.outputs.region }}
     
     steps:
-      - name: Check branch/input and set environment
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set environment based on trigger
         id: set-env
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -56,10 +65,10 @@ jobs:
             echo "environment=dev" >> $GITHUB_OUTPUT
           fi
           
-          ENV=$(cat $GITHUB_OUTPUT | grep environment | cut -d'=' -f2)
+          ENV=$(echo "$GITHUB_OUTPUT" | grep environment | cut -d'=' -f2)
           echo "Using environment: $ENV"
       
-      - name: Set application based on repository or input
+      - name: Set application based on trigger or repository
         id: set-app
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.application }}" != "" ]]; then
@@ -85,76 +94,42 @@ jobs:
           echo "application=$APP_NAME" >> $GITHUB_OUTPUT
           echo "Using application: $APP_NAME"
       
-      - name: Set project ID
-        id: set-project
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      
+      - name: Load configuration
+        id: load-config
         run: |
           APP="${{ steps.set-app.outputs.application }}"
           ENV="${{ steps.set-env.outputs.environment }}"
           
-          PROJECT_ID="${APP}-${ENV}-project"
-          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
-          echo "Using project ID: $PROJECT_ID"
-      
-      - name: Set project number for authentication
-        id: set-project-number
-        run: |
-          # Define direct mapping with simple variables instead of arrays
-          GIORTECH_DEV="653675374627"
-          GIORTECH_UAT="28962750525"
-          GIORTECH_PROD="371831144642"
-          
-          # Get project ID from previous step
-          PROJECT_ID="${{ steps.set-project.outputs.project_id }}"
-          echo "Checking project number for: $PROJECT_ID"
-          
-          # Use simple if conditions instead of arrays
-          if [[ "$PROJECT_ID" == "giortech-dev-project" ]]; then
-            PROJECT_NUMBER="$GIORTECH_DEV"
-          elif [[ "$PROJECT_ID" == "giortech-uat-project" ]]; then
-            PROJECT_NUMBER="$GIORTECH_UAT"
-          elif [[ "$PROJECT_ID" == "giortech-prod-project" ]]; then
-            PROJECT_NUMBER="$GIORTECH_PROD"
-          else
-            PROJECT_NUMBER=""
-          fi
-          
-          # Output result
-          if [[ -z "$PROJECT_NUMBER" ]]; then
-            echo "Project number not found for $PROJECT_ID in predefined mapping"
-            echo "project_number=unknown" >> $GITHUB_OUTPUT
-          else
-            echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
-            echo "Using project number: $PROJECT_NUMBER"
-          fi
-
-  get-identity:
-    needs: determine-context
-    runs-on: ubuntu-latest
-    outputs:
-      wi_provider: ${{ steps.identity.outputs.wi_provider }}
-      sa_email: ${{ steps.identity.outputs.sa_email }}
-    
-    steps:
-      - name: Set Workload Identity values directly
-        id: identity
-        run: |
-          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
-          PROJECT_NUMBER="${{ needs.determine-context.outputs.project_number }}"
-          
-          if [[ -z "$PROJECT_NUMBER" || "$PROJECT_NUMBER" == "unknown" ]]; then
-            echo "Cannot determine project number. Check project mapping in workflow."
+          if [ ! -f ".github/config/project-config.yml" ]; then
+            echo "::error::Configuration file not found: .github/config/project-config.yml"
             exit 1
           fi
           
-          echo "wi_provider=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
-          echo "sa_email=github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
+          # Extract values from config file using yq
+          PROJECT_ID=$(yq e ".$APP.$ENV.project_id" .github/config/project-config.yml)
+          PROJECT_NUMBER=$(yq e ".$APP.$ENV.project_number" .github/config/project-config.yml)
+          REGION=$(yq e ".$APP.$ENV.region" .github/config/project-config.yml)
           
-          echo "Workload Identity Provider: projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          echo "Service Account: github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com"
+          # Set outputs
+          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
+          echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
+          echo "region=$REGION" >> $GITHUB_OUTPUT
+          
+          # Debug output
+          echo "Using configuration for $APP in $ENV environment:"
+          echo "  Project ID: $PROJECT_ID"
+          echo "  Project Number: $PROJECT_NUMBER"
+          echo "  Region: $REGION"
 
   deploy-infrastructure:
-    needs: [determine-context, get-identity]
+    needs: determine-context
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     
     permissions:
       contents: 'read'
@@ -162,17 +137,17 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       
       - name: Authenticate to Google Cloud
         id: auth
-        uses: google-github-actions/auth@v1
+        uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ needs.get-identity.outputs.wi_provider }}
-          service_account: ${{ needs.get-identity.outputs.sa_email }}
+          workload_identity_provider: projects/${{ needs.determine-context.outputs.project_number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-sa@${{ needs.determine-context.outputs.project_id }}.iam.gserviceaccount.com
       
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
+        uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ needs.determine-context.outputs.project_id }}
       
@@ -188,11 +163,10 @@ jobs:
             exit 1
           }
           
-          echo "Checking if required APIs are enabled:"
+          echo "Checking and enabling required APIs:"
           gcloud services list --project=${{ needs.determine-context.outputs.project_id }} | grep -E 'cloudbuild|run|compute|storage' || {
-            echo "Warning: Some required APIs may need to be enabled"
             echo "Enabling essential services..."
-            gcloud services enable run.googleapis.com cloudbuild.googleapis.com --project=${{ needs.determine-context.outputs.project_id }}
+            gcloud services enable run.googleapis.com cloudbuild.googleapis.com compute.googleapis.com storage.googleapis.com --project=${{ needs.determine-context.outputs.project_id }}
           }
       
       - name: Set Terraform working directory
@@ -222,13 +196,9 @@ jobs:
       - name: Prepare Terraform Files
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
-          # Only create files if they don't exist
+          # Check if main.tf exists, create if needed
           if [ ! -f "main.tf" ]; then
-            # Backup the existing files if any
-            mkdir -p backup
-            cp -f *.tf backup/ 2>/dev/null || true
-              
-            # Create a clean main.tf
+            echo "Creating main.tf as it doesn't exist..."
             cat > main.tf << 'EOFMAIN'
             terraform {
               required_providers {
@@ -237,7 +207,6 @@ jobs:
                   version = "~> 4.0"
                 }
               }
-            
               backend "gcs" {}
             }
           
@@ -281,31 +250,48 @@ jobs:
               description = "Storage bucket name"
             }
             EOFMAIN
+          else
+            echo "main.tf already exists, using existing file"
           fi
 
-          # Create terraform.tfvars if it doesn't exist
-          if [ ! -f "terraform.tfvars" ]; then
-            cat > terraform.tfvars << EOF
-            project_id  = "${{ needs.determine-context.outputs.project_id }}"
-            region      = "${{ env.REGION }}"
-            environment = "${{ needs.determine-context.outputs.environment }}"
-            EOF
+          # Create terraform.tfvars with proper values
+          cat > terraform.tfvars << EOF
+          project_id  = "${{ needs.determine-context.outputs.project_id }}"
+          region      = "${{ needs.determine-context.outputs.region }}"
+          environment = "${{ needs.determine-context.outputs.environment }}"
+          EOF
+          
+          echo "Created terraform.tfvars:"
+          cat terraform.tfvars
+      
+      - name: Clean Any Existing Locks
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          echo "🧹 Cleaning any existing state locks..."
+          
+          LOCK_FILE="gs://academyaxis-terraform-state/${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}/default.tflock"
+          
+          # Check if lock file exists and remove it
+          if gcloud storage ls "$LOCK_FILE" 2>/dev/null; then
+            echo "🔒 Found existing lock file, removing it..."
+            gcloud storage rm "$LOCK_FILE" || echo "Could not remove lock file"
+            sleep 2
+          else
+            echo "✅ No lock file found"
+          fi
       
       - name: Terraform Init
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        env:
-          GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: |
           # Create backend config file
           cat > backend.hcl << EOF
           bucket  = "academyaxis-terraform-state"
           prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
-        EOF
+          EOF
             
           # Initialize with backend config
           terraform init -backend-config=backend.hcl -reconfigure || {
-            echo "Terraform init failed. This could be due to missing permissions or resources."
-            echo "Attempting to create state bucket if it doesn't exist..."
+            echo "Terraform init failed. Attempting to create state bucket..."
             gcloud storage buckets create gs://academyaxis-terraform-state --location=us-central1 --uniform-bucket-level-access || true
             
             # Try init again
@@ -314,20 +300,40 @@ jobs:
       
       - name: Terraform Plan
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        timeout-minutes: 10
         run: |
-          terraform plan -out=tfplan || {
+          echo "🔄 Running Terraform plan..."
+          terraform plan -out=tfplan -no-color || {
             echo "Terraform plan failed. Check for permission or configuration issues."
             exit 1
           }
+          
+          echo "✅ Plan completed successfully"
       
       - name: Terraform Apply
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        timeout-minutes: 15
+        if: success()
         run: |
-          terraform apply -auto-approve tfplan || {
+          echo "🚀 Applying Terraform changes..."
+          
+          # Check if plan file exists
+          if [ ! -f "tfplan" ]; then
+            echo "❌ No plan file found, cannot apply"
+            exit 1
+          fi
+          
+          terraform apply -auto-approve tfplan -no-color || {
             echo "Terraform apply failed. Check for permission or resource issues."
-            terraform apply -auto-approve -refresh-only
             exit 1
           }
           
-          echo "Infrastructure deployment complete!"
-          terraform output -json || echo "No outputs available"
+          echo "✅ Infrastructure deployment completed successfully!"
+      
+      - name: Show Terraform Outputs
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        if: success()
+        run: |
+          echo "=== TERRAFORM OUTPUTS ==="
+          terraform output -no-color || echo "No outputs defined"
+          echo "=== END OUTPUTS ==="

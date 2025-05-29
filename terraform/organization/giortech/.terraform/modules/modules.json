@@ -1,1 +1,1 @@
-{"Modules":[{"Key":"","Source":"","Dir":"."},{"Key":"workload_identity","Source":"./modules/workload_identity","Dir":""}]}
+{"Modules":[{"Key":"","Source":"","Dir":"."},{"Key":"workload_identity","Source":"../../modules/workload_identity","Dir":"../../modules/workload_identity"}]}

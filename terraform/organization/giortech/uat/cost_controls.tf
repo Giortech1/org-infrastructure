@@ -2,13 +2,14 @@
 module "giortech_uat_cost_controls" {
   source = "../../../modules/cost_controls"
   
-  project_id         = "giortech-uat-project"
-  application        = "giortech"
-  environment        = "uat"
-  region             = "us-central1"
-  billing_account_id = "0141E4-398D5E-91A063"
-  budget_amount      = 50  # $50 monthly budget for UAT environment
+  project_id          = "giortech-uat-project"
+  application         = "giortech"
+  environment         = "uat"
+  region              = "us-central1"
+  billing_account_id  = "0141E4-398D5E-91A063"
+  budget_amount       = 50  # $50 monthly budget for UAT environment
   alert_email_address = "devops@academyaxis.io"
+  create_budget       = true  # Enable budget creation
 }
 
 # Output the dashboard URLs for easy access

@@ -42,10 +42,7 @@ on:
           - plan
           - apply
           - destroy
-
-env:
-  REGION: us-central1
-
+          
 jobs:
   determine-context:
     runs-on: ubuntu-latest
