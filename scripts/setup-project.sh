@@ -141,7 +141,9 @@ terraform {
       version = "~> 4.0"
     }
   }
-  backend "gcs" {}
+  backend "gcs" {
+    bucket = var.bucket_name
+  }
 }
 
 provider "google" {
@@ -187,13 +189,22 @@ EOFMAIN
 else
   echo "main.tf already exists, using existing file"
 fi
+if [ -f "terraform.tfvars" ]; then
+  echo "terraform.tfvars already exists. Do you want to overwrite it? (y/n)"
+  read -r response
+  if [[ "$response" != "y" ]]; then
+    echo "Skipping creation of terraform.tfvars."
+    exit 0
+  fi
+fi
 
-# Create terraform.tfvars with proper values
 cat > terraform.tfvars << EOF
 project_id  = "giortech-dev-project"
 region      = "us-central1"
 environment = "dev"
 EOF
 
+echo "Created terraform.tfvars:"
+cat terraform.tfvars
 echo "Created terraform.tfvars:"
 cat terraform.tfvars
