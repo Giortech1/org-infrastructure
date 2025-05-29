@@ -67,10 +67,6 @@ variable "log_retention_days" {
   description = "Number of days to retain logs (overrides environment default)"
   type        = number
   default     = null
-  validation {
-    condition     = var.log_retention_days == null || (var.log_retention_days >= 1 && var.log_retention_days <= 365)
-    error_message = "Log retention must be between 1 and 365 days."
-  }
 }
 
 variable "enable_alerts" {

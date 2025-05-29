@@ -145,7 +145,7 @@ resource "google_logging_project_bucket_config" "logging_bucket" {
   location   = "global"
   bucket_id  = "_Default"
   
-  retention_days = var.environment == "prod" ? 30 : (var.environment == "uat" ? 14 : 7)
+  retention_days = var.log_retention_days != null ? var.log_retention_days : (var.environment == "prod" ? 30 : (var.environment == "uat" ? 14 : 7))
 }
 
 # Log metric for expensive operations
@@ -174,7 +174,7 @@ resource "google_monitoring_alert_policy" "expensive_operations_alert" {
     display_name = "High number of expensive operations"
     condition_threshold {
       filter         = "resource.type=\"global\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.expensive_operations.name}\""
-      comparison     = "COMPARISON_GREATER_THAN"
+      comparison     = "COMPARISON_GT"
       threshold_value = 10
       duration        = "300s"
 
