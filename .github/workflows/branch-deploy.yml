@@ -299,15 +299,28 @@ jobs:
           }
       
       - name: Terraform Plan
-        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
-        timeout-minutes: 10
         run: |
           echo "🔄 Running Terraform plan..."
-          terraform plan -out=tfplan -no-color || {
+    
+          # Create terraform.tfvars with required variables
+          cat > terraform.tfvars << EOF
+          project_id = "${{ needs.determine-context.outputs.project_id }}"
+          region = "${{ needs.determine-context.outputs.region }}"
+          environment = "${{ needs.determine-context.outputs.environment }}"
+          application = "${{ needs.determine-context.outputs.application }}"
+          billing_account_id = "0141E4-398D5E-91A063"
+          cloud_run_service_name = "${{ needs.determine-context.outputs.service_name }}"
+          EOF
+    
+          echo "Created terraform.tfvars:"
+          cat terraform.tfvars
+    
+          # Run plan with variables file
+          terraform plan -out=tfplan -no-color -var-file=terraform.tfvars || {
             echo "Terraform plan failed. Check for permission or configuration issues."
             exit 1
           }
-          
+    
           echo "✅ Plan completed successfully"
       
       - name: Terraform Apply
