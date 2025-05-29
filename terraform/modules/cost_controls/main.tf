@@ -1,4 +1,3 @@
-# terraform/modules/cost_controls/main.tf
 terraform {
   required_providers {
     google = {
@@ -12,7 +11,7 @@ terraform {
 resource "google_project_service" "required_apis" {
   for_each = toset([
     "billingbudgets.googleapis.com",
-    "monitoring.googleapis.com", 
+    "monitoring.googleapis.com",
     "logging.googleapis.com"
   ])
   project            = var.project_id
@@ -68,7 +67,7 @@ resource "google_monitoring_notification_channel" "email_channel" {
   depends_on = [google_project_service.required_apis]
 }
 
-# Create simplified cost dashboard
+# Create simplified cost dashboard (fixing overlapping tiles)
 resource "google_monitoring_dashboard" "cost_dashboard" {
   dashboard_json = jsonencode({
     displayName = "${var.application}-${var.environment} Cost Dashboard"
@@ -76,6 +75,8 @@ resource "google_monitoring_dashboard" "cost_dashboard" {
       columns = 12
       tiles = [
         {
+          xPos   = 0
+          yPos   = 0
           width  = 6
           height = 4
           widget = {
@@ -103,6 +104,8 @@ resource "google_monitoring_dashboard" "cost_dashboard" {
           }
         },
         {
+          xPos   = 6
+          yPos   = 0
           width  = 6
           height = 4
           widget = {
@@ -144,12 +147,14 @@ resource "google_monitoring_dashboard" "cost_optimization_dashboard" {
       columns = 12
       tiles = [
         {
+          xPos   = 0
+          yPos   = 0
           width  = 12
           height = 4
           widget = {
             title = "Cost Optimization Recommendations"
             text = {
-              content = "## Cost Optimization for ${var.application}-${var.environment}\n\n**Monthly Budget:** ${var.budget_amount}\n\n### Recommendations:\n1. Monitor resource usage patterns\n2. Review scaling settings regularly\n3. Optimize log retention policies\n4. Track expensive operations\n\n### Environment Settings:\n- **Log Retention:** ${var.environment == "prod" ? "30" : (var.environment == "uat" ? "14" : "7")} days\n- **Environment:** ${title(var.environment)}"
+              content = "## Cost Optimization for ${var.application}-${var.environment}\n\n**Monthly Budget:** ${var.budget_amount}\n\n### Recommendations:\n1. Monitor resource usage patterns\n2. ...\n"
               format = "MARKDOWN"
             }
           }
@@ -166,19 +171,19 @@ resource "google_logging_project_bucket_config" "logging_bucket" {
   project    = var.project_id
   location   = "global"
   bucket_id  = "_Default"
-  
+
   retention_days = var.log_retention_days != null ? var.log_retention_days : (var.environment == "prod" ? 30 : (var.environment == "uat" ? 14 : 7))
 
   depends_on = [google_project_service.required_apis]
 }
 
-# Simplified log metric for expensive operations
+# Simplified log metric for expensive operations (ensure only valid metric_kind)
 resource "google_logging_metric" "expensive_operations" {
   name   = "${var.application}-${var.environment}-expensive-ops"
   filter = "textPayload:\"expensive-operation:\""
-  
+
   metric_descriptor {
-    metric_kind = "GAUGE"
+    metric_kind = "DELTA"
     value_type  = "INT64"
   }
 
@@ -214,15 +219,25 @@ resource "google_monitoring_alert_policy" "expensive_operations_alert" {
   ]
 }
 
-# Simplified log sink for cost optimization
+# Simplified log sink for cost optimization (fix destination to valid storage bucket)
+# Add storage bucket first
+resource "google_storage_bucket" "log_storage" {
+  name          = "${var.project_id}-${var.application}-${var.environment}-logs"
+  location      = var.region
+  force_destroy = true
+  uniform_bucket_level_access = true
+
+  depends_on = [google_project_service.required_apis]
+}
+
+# Fixed log sink
 resource "google_logging_project_sink" "cost_optimized_sink" {
   name        = "${var.application}-${var.environment}-cost-optimized-logs"
-  destination = "logging.googleapis.com/projects/${var.project_id}/logs/${var.application}-${var.environment}-filtered"
+  destination = "storage.googleapis.com/${google_storage_bucket.log_storage.name}"  # ✅ FIXED
 
-  # Exclude health checks and debug logs to reduce costs
   filter = <<-EOT
     NOT (
-      httpRequest.requestUrl:"/health" 
+      httpRequest.requestUrl:"/health"
       OR httpRequest.requestUrl:"/_ah/health"
       OR severity="DEBUG"
       OR (resource.type="cloud_run_revision" AND textPayload:"health check")
@@ -230,6 +245,15 @@ resource "google_logging_project_sink" "cost_optimized_sink" {
   EOT
 
   unique_writer_identity = true
+  depends_on = [
+    google_project_service.required_apis,
+    google_storage_bucket.log_storage
+  ]
+}
 
-  depends_on = [google_project_service.required_apis]
+# Grant log sink permission to write to bucket
+resource "google_storage_bucket_iam_member" "log_sink_writer" {
+  bucket = google_storage_bucket.log_storage.name
+  role   = "roles/storage.objectCreator"
+  member = google_logging_project_sink.cost_optimized_sink.writer_identity
 }
