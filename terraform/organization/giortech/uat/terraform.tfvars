@@ -1,5 +1,10 @@
 project_id         = "giortech-uat-project"
+region             = "us-central1"
 environment        = "uat"
-region            = "us-central1"
 billing_account_id = "0141E4-398D5E-91A063"
-budget_amount     = 50  # $50 monthly budget for uat
+budget_amount      = 50
+create_identity_pool   = false
+create_service_account = false
+deploy_cloud_run       = false
+create_budget          = false  # ✅ Disable until permissions are fixed
+container_image        = "gcr.io/google-samples/hello-app:1.0"
