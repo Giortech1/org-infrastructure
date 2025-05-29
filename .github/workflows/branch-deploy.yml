@@ -299,17 +299,22 @@ jobs:
           }
       
       - name: Terraform Plan
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}  # ✅ FIXED: Added missing working-directory
         run: |
           echo "🔄 Running Terraform plan..."
     
-          # Create terraform.tfvars with required variables
+          # ✅ FIXED: Create terraform.tfvars with correct variables that match the Terraform configuration
           cat > terraform.tfvars << EOF
-          project_id = "${{ needs.determine-context.outputs.project_id }}"
-          region = "${{ needs.determine-context.outputs.region }}"
-          environment = "${{ needs.determine-context.outputs.environment }}"
-          application = "${{ needs.determine-context.outputs.application }}"
+          project_id         = "${{ needs.determine-context.outputs.project_id }}"
+          region             = "${{ needs.determine-context.outputs.region }}"
+          environment        = "${{ needs.determine-context.outputs.environment }}"
           billing_account_id = "0141E4-398D5E-91A063"
-          cloud_run_service_name = "${{ needs.determine-context.outputs.service_name }}"
+          budget_amount      = 50
+          create_identity_pool   = false
+          create_service_account = false
+          deploy_cloud_run       = false
+          create_budget          = false
+          container_image        = "gcr.io/google-samples/hello-app:1.0"
           EOF
     
           echo "Created terraform.tfvars:"
