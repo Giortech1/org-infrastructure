@@ -40,9 +40,9 @@ resource "google_project_service" "required_apis" {
     "billingbudgets.googleapis.com",
     "certificatemanager.googleapis.com"
   ])
-  
-  project = var.project_id
-  service = each.value
+
+  project            = var.project_id
+  service            = each.value
   disable_on_destroy = false
 }
 
@@ -53,11 +53,11 @@ resource "random_id" "bucket_suffix" {
 
 # Storage bucket for basic infrastructure with unique name
 resource "google_storage_bucket" "storage" {
-  name          = "${var.project_id}-bucket-${random_id.bucket_suffix.hex}"
-  location      = var.region
-  force_destroy = true
+  name                        = "${var.project_id}-bucket-${random_id.bucket_suffix.hex}"
+  location                    = var.region
+  force_destroy               = true
   uniform_bucket_level_access = true
-  
+
   depends_on = [google_project_service.required_apis]
 }
 
