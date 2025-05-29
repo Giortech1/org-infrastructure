@@ -73,3 +73,16 @@ variable "skip_neg" {
   type        = bool
   default     = false
 }
+
+# ✅ FIXED - Removed invalid variable references in defaults
+variable "log_retention_days" {
+  description = "Number of days to retain logs"
+  type        = number
+  default     = null
+}
+
+variable "enable_detailed_monitoring" {
+  description = "Whether to enable detailed monitoring"
+  type        = bool
+  default     = false
+}
