@@ -1,0 +1,71 @@
+# File: .github/workflows/test-minimal-plan.yml
+name: Test Minimal Terraform Plan
+
+on:
+  workflow_dispatch:
+
+jobs:
+  minimal-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/653675374627/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-sa@giortech-dev-project.iam.gserviceaccount.com
+      
+      - name: Setup
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Create Minimal Test
+        run: |
+          mkdir -p /tmp/tf-test
+          cd /tmp/tf-test
+          
+          cat > main.tf << 'EOF'
+          terraform {
+            required_providers {
+              google = {
+                source  = "hashicorp/google"
+                version = "~> 4.0"
+              }
+            }
+            backend "gcs" {
+              bucket = "academyaxis-terraform-state"
+              prefix = "test/minimal"
+            }
+          }
+          
+          provider "google" {
+            project = "giortech-dev-project"
+            region  = "us-central1"
+          }
+          
+          data "google_project" "current" {
+            project_id = "giortech-dev-project"
+          }
+          
+          output "project_id" {
+            value = data.google_project.current.project_id
+          }
+          EOF
+          
+          echo "=== MINIMAL TEST ==="
+          terraform --version
+          terraform init -no-color
+          
+          echo "=== TESTING PLAN WITH TIMEOUT ==="
+          timeout 60 terraform plan -no-color || {
+            echo "Minimal plan also timed out - this suggests a systemic issue"
+            exit 1
+          }
+          
+          echo "✅ Minimal plan completed successfully"

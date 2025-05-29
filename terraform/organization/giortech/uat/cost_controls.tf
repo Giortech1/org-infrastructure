@@ -1,5 +1,5 @@
 # Configure cost controls for giortech UAT environment
-module "giortech_uat_cost_controls" {
+module "cost_controls" {
   source = "../../../modules/cost_controls"
   
   project_id         = "giortech-uat-project"
@@ -9,11 +9,12 @@ module "giortech_uat_cost_controls" {
   billing_account_id = "0141E4-398D5E-91A063"
   budget_amount      = 50  # $50 monthly budget for UAT environment
   alert_email_address = "devops@academyaxis.io"
+  create_budget = false  # Set to true if you want to create a budget
 }
 
 # Output the dashboard URLs for easy access
 output "cost_control_dashboards" {
-  value = module.giortech_uat_cost_controls.dashboards
+  value = module.cost_controls.dashboards
 }
 
 # Create a README with cost control best practices
@@ -34,11 +35,11 @@ This environment is configured with cost controls to ensure we stay within our o
 ## Monitoring Dashboards
 
 Access the cost monitoring dashboards at:
-${module.giortech_uat_cost_controls.dashboards.cost_dashboard}
+${module.cost_controls.dashboards.cost_dashboard}
 
 ## Alert Notifications
 
-Budget alerts are sent to: ${module.giortech_uat_cost_controls.notification_channel}
+Budget alerts are sent to: ${module.cost_controls.notification_channel}
 
 ## How to Optimize Costs
 
@@ -50,7 +51,7 @@ Budget alerts are sent to: ${module.giortech_uat_cost_controls.notification_chan
 ## Tracking Expensive Operations
 
 The following metric tracks expensive operations:
-`${module.giortech_uat_cost_controls.log_metric_name}`
+`${module.cost_controls.log_metric_name}`
 
 To mark an operation as expensive, include the following in your logs:
 ```
