@@ -1,26 +1,4 @@
-# Configure cost controls for academyaxis UAT environment
-module "academyaxis_uat_cost_controls" {
-  source = "../../../modules/cost_controls"
-
-  project_id          = "academyaxis-uat-project"
-  application         = "academyaxis"
-  environment         = "uat"
-  region              = "us-central1"
-  billing_account_id  = "01CCAF-9AB761-C3B593" # AcademyAxis billing account
-  budget_amount       = 25                     # $25 monthly budget for UAT environment
-  alert_email_address = "devops@academyaxis.io"
-  create_budget       = true # Enable budget creation
-}
-
-# Output the dashboard URLs for easy access
-output "cost_control_dashboards" {
-  value = module.academyaxis_uat_cost_controls.dashboards
-}
-
-# Create a README with cost control best practices
-resource "local_file" "cost_control_readme" {
-  content  = <<-EOF
-# Cost Control Best Practices for ${upper("academyaxis-uat")}
+# Cost Control Best Practices for ACADEMYAXIS-UAT
 
 ## Monthly Budget: $25 USD
 
@@ -36,11 +14,11 @@ This environment is configured with cost controls to ensure we stay within our o
 ## Monitoring Dashboards
 
 Access the cost monitoring dashboards at:
-${module.academyaxis_uat_cost_controls.dashboards.cost_dashboard}
+https://console.cloud.google.com/monitoring/dashboards/custom/projects/415071431590/dashboards/b64bb7c2-6e43-48b0-82d0-567255a10c07?project=academyaxis-uat-project
 
 ## Alert Notifications
 
-Budget alerts are sent to: ${module.academyaxis_uat_cost_controls.notification_channel}
+Budget alerts are sent to: projects/academyaxis-uat-project/notificationChannels/7985875571254248292
 
 ## AcademyAxis Platform Specific Optimizations
 
@@ -53,7 +31,7 @@ Budget alerts are sent to: ${module.academyaxis_uat_cost_controls.notification_c
 ## Tracking Expensive Operations
 
 The following metric tracks expensive operations:
-`${module.academyaxis_uat_cost_controls.log_metric_name}`
+`academyaxis-uat-expensive-ops`
 
 To mark an operation as expensive, include the following in your logs:
 ```
@@ -66,6 +44,3 @@ expensive-operation: operation_type
 2. Use compressed media files for testing
 3. Implement test data cleanup after UAT cycles
 4. Monitor resource usage during load testing
-  EOF
-  filename = "../../../docs/academyaxis-uat-cost-controls.md"
-}
