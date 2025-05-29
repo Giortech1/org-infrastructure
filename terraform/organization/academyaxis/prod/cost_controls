@@ -1,0 +1,109 @@
+# Configure cost controls for academyaxis production environment
+module "academyaxis_prod_cost_controls" {
+  source = "../../../modules/cost_controls"
+  
+  project_id          = "academyaxis-prod-project"
+  application         = "academyaxis"
+  environment         = "prod"
+  region              = "us-central1"
+  billing_account_id  = "01CCAF-9AB761-C3B593"  # AcademyAxis billing account
+  budget_amount       = 100  # $100 monthly budget for production environment (when activated)
+  alert_email_address = "devops@academyaxis.io"
+  create_budget       = false # Budget creation disabled initially, enable when ready for production
+}
+
+# Output the dashboard URLs for easy access
+output "cost_control_dashboards" {
+  value = module.academyaxis_prod_cost_controls.dashboards
+}
+
+# Create a README with cost control best practices for production
+resource "local_file" "cost_control_readme" {
+  content  = <<-EOF
+# Cost Control Best Practices for ${upper("academyaxis-prod")}
+
+## Monthly Budget: $100 USD (When Activated)
+
+This production environment is configured with cost controls to ensure we stay within our organization's monthly budget. Total monthly budget for all environments should not exceed $300 USD.
+
+## Key Cost Control Measures
+
+1. **Minimum 1 instance** for consistent availability
+2. **Standard log retention** (30 days for compliance)
+3. **Log filtering** to exclude health checks while preserving educational analytics
+4. **Production-grade monitoring** and alerting
+5. **Optimized media storage** with intelligent lifecycle management
+
+## Monitoring Dashboards
+
+Access the cost monitoring dashboards at:
+${module.academyaxis_prod_cost_controls.dashboards.cost_dashboard}
+
+## Alert Notifications
+
+Budget alerts are sent to: ${module.academyaxis_prod_cost_controls.notification_channel}
+
+## Production Cost Optimization Strategies
+
+### Educational Platform Specific
+1. **Content Delivery Network (CDN)** for educational media
+2. **Smart caching** for frequently accessed learning materials
+3. **Media optimization** - compress videos and images
+4. **Database optimization** for user progress and content metadata
+5. **Intelligent scaling** based on learning patterns and peak usage times
+
+### Infrastructure Optimization
+1. Use efficient scaling policies (min 1 instance, max 20)
+2. Monitor and adjust resource allocation based on student traffic patterns
+3. Implement cost-effective storage tiers for different content types
+4. Regular performance and cost reviews
+5. Optimize API calls between mobile app and web platform
+
+## Storage Strategy
+
+### Primary Storage (`academyaxis-prod-project-bucket`)
+- Application data and configurations
+- User progress and analytics
+- 1-year retention with versioning
+
+### Media Storage (`academyaxis-prod-media-content`)
+- Educational videos, images, and interactive content
+- Optimized lifecycle: Standard → Nearline (30 days) → Coldline (90 days)
+- CORS enabled for web platform access
+
+## Tracking Expensive Operations
+
+The following metric tracks expensive operations:
+`${module.academyaxis_prod_cost_controls.log_metric_name}`
+
+To mark an operation as expensive, include the following in your logs:
+```
+expensive-operation: operation_type
+```
+
+## Production-Specific Considerations
+
+- **Always-on availability**: Minimum 1 Cloud Run instance for mobile app backend
+- **Enhanced monitoring**: Comprehensive dashboards for educational analytics
+- **Data retention**: 30-day log retention for compliance and user behavior analysis
+- **Backup strategy**: Versioned storage with intelligent lifecycle management
+- **Security**: Enhanced protection for student data and educational content
+- **Performance**: Optimized for global student access patterns
+
+## Educational Content Optimization
+
+1. **Video Compression**: Use efficient encoding for educational videos
+2. **Image Optimization**: Compress course images and diagrams
+3. **Progressive Loading**: Implement lazy loading for course materials
+4. **Content Caching**: Cache frequently accessed lessons and quizzes
+5. **Regional Distribution**: Consider regional content distribution for global users
+
+## Scaling Considerations
+
+- **Peak Hours**: Monitor usage during common study times
+- **Seasonal Patterns**: Adjust for academic calendar peaks
+- **Geographic Distribution**: Optimize for different time zones
+- **Content Type**: Different scaling for video vs text content
+  EOF
+  filename = "../../../docs/academyaxis-prod-cost-controls.md"
+}
