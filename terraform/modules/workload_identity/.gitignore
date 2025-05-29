@@ -1,0 +1,4 @@
+**/.terraform/
+**/.terraform/providers/**
+*.tfstate
+*.tfstate.*
