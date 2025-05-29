@@ -66,8 +66,8 @@ resource "google_monitoring_notification_channel" "email_channel" {
 
   depends_on = [google_project_service.required_apis]
 }
-
-# Create simplified cost dashboard (fixing overlapping tiles)
+# Create a dashboard for cost monitoring
+# This dashboard provides a high-level overview of costs and budget status
 resource "google_monitoring_dashboard" "cost_dashboard" {
   dashboard_json = jsonencode({
     displayName = "${var.application}-${var.environment} Cost Dashboard"
@@ -77,58 +77,13 @@ resource "google_monitoring_dashboard" "cost_dashboard" {
         {
           xPos   = 0
           yPos   = 0
-          width  = 6
-          height = 4
+          width  = 12
+          height = 6
           widget = {
-            title = "Cloud Run Request Count"
-            xyChart = {
-              dataSets = [{
-                timeSeriesQuery = {
-                  timeSeriesFilter = {
-                    filter = "resource.type=\"cloud_run_revision\" AND resource.labels.project_id=\"${var.project_id}\""
-                    aggregation = {
-                      alignmentPeriod    = "60s"
-                      perSeriesAligner   = "ALIGN_RATE"
-                      crossSeriesReducer = "REDUCE_SUM"
-                    }
-                  }
-                }
-                plotType = "LINE"
-              }]
-              timeshiftDuration = "0s"
-              yAxis = {
-                label = "Requests per second"
-                scale = "LINEAR"
-              }
-            }
-          }
-        },
-        {
-          xPos   = 6
-          yPos   = 0
-          width  = 6
-          height = 4
-          widget = {
-            title = "Storage Usage"
-            xyChart = {
-              dataSets = [{
-                timeSeriesQuery = {
-                  timeSeriesFilter = {
-                    filter = "resource.type=\"gcs_bucket\" AND resource.labels.project_id=\"${var.project_id}\""
-                    aggregation = {
-                      alignmentPeriod    = "3600s"
-                      perSeriesAligner   = "ALIGN_MEAN"
-                      crossSeriesReducer = "REDUCE_SUM"
-                    }
-                  }
-                }
-                plotType = "LINE"
-              }]
-              timeshiftDuration = "0s"
-              yAxis = {
-                label = "Bytes"
-                scale = "LINEAR"
-              }
+            title = "Cost Monitoring Overview"
+            text = {
+              content = "## ${title(var.application)} ${title(var.environment)} Environment\n\n**Monthly Budget:** $${var.budget_amount} USD\n\n**Current Configuration:**\n- Log Retention: ${var.environment == "prod" ? "30" : (var.environment == "uat" ? "14" : "7")} days\n- Environment: ${title(var.environment)}\n- Project: ${var.project_id}\n\n**Cost Optimization Status:**\n- Budget alerts configured at 50%, 75%, 90%, 100%\n- Log filtering active to reduce costs\n- Expensive operations tracking enabled\n\n**Monitoring:**\n- Email alerts: ${var.alert_email_address}\n- Dashboard last updated: $(date)\n\n**Quick Actions:**\n1. Review resource usage weekly\n2. Scale down unused services\n3. Clean up old storage buckets\n4. Monitor expensive operations in logs"
+              format = "MARKDOWN"
             }
           }
         }
