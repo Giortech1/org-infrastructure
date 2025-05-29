@@ -8,6 +8,18 @@ terraform {
   }
 }
 
+# Enable required APIs
+resource "google_project_service" "required_apis" {
+  for_each = toset([
+    "billingbudgets.googleapis.com",
+    "monitoring.googleapis.com", 
+    "logging.googleapis.com"
+  ])
+  project            = var.project_id
+  service            = each.value
+  disable_on_destroy = false
+}
+
 # Create budget for cost control
 resource "google_billing_budget" "project_budget" {
   count           = var.create_budget ? 1 : 0
@@ -41,6 +53,8 @@ resource "google_billing_budget" "project_budget" {
   all_updates_rule {
     monitoring_notification_channels = [google_monitoring_notification_channel.email_channel.name]
   }
+
+  depends_on = [google_project_service.required_apis]
 }
 
 # Create notification channel for alerts
@@ -50,28 +64,40 @@ resource "google_monitoring_notification_channel" "email_channel" {
   labels = {
     email_address = var.alert_email_address
   }
+
+  depends_on = [google_project_service.required_apis]
 }
 
-# Create cost dashboard
+# Create simplified cost dashboard
 resource "google_monitoring_dashboard" "cost_dashboard" {
   dashboard_json = jsonencode({
     displayName = "${var.application}-${var.environment} Cost Dashboard"
     mosaicLayout = {
+      columns = 12
       tiles = [
         {
           width  = 6
           height = 4
           widget = {
-            title = "Cloud Run CPU Utilization"
-            scorecard = {
-              timeSeriesQuery = {
-                timeSeriesFilter = {
-                  filter = "resource.type=\"cloud_run_revision\""
-                  aggregation = {
-                    alignmentPeriod  = "60s"
-                    perSeriesAligner = "ALIGN_MEAN"
+            title = "Cloud Run Request Count"
+            xyChart = {
+              dataSets = [{
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "resource.type=\"cloud_run_revision\" AND resource.labels.project_id=\"${var.project_id}\""
+                    aggregation = {
+                      alignmentPeriod    = "60s"
+                      perSeriesAligner   = "ALIGN_RATE"
+                      crossSeriesReducer = "REDUCE_SUM"
+                    }
                   }
                 }
+                plotType = "LINE"
+              }]
+              timeshiftDuration = "0s"
+              yAxis = {
+                label = "Requests per second"
+                scale = "LINEAR"
               }
             }
           }
@@ -81,15 +107,24 @@ resource "google_monitoring_dashboard" "cost_dashboard" {
           height = 4
           widget = {
             title = "Storage Usage"
-            scorecard = {
-              timeSeriesQuery = {
-                timeSeriesFilter = {
-                  filter = "resource.type=\"gcs_bucket\""
-                  aggregation = {
-                    alignmentPeriod  = "3600s"
-                    perSeriesAligner = "ALIGN_MEAN"
+            xyChart = {
+              dataSets = [{
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "resource.type=\"gcs_bucket\" AND resource.labels.project_id=\"${var.project_id}\""
+                    aggregation = {
+                      alignmentPeriod    = "3600s"
+                      perSeriesAligner   = "ALIGN_MEAN"
+                      crossSeriesReducer = "REDUCE_SUM"
+                    }
                   }
                 }
+                plotType = "LINE"
+              }]
+              timeshiftDuration = "0s"
+              yAxis = {
+                label = "Bytes"
+                scale = "LINEAR"
               }
             }
           }
@@ -97,6 +132,8 @@ resource "google_monitoring_dashboard" "cost_dashboard" {
       ]
     }
   })
+
+  depends_on = [google_project_service.required_apis]
 }
 
 # Create cost optimization dashboard
@@ -104,6 +141,7 @@ resource "google_monitoring_dashboard" "cost_optimization_dashboard" {
   dashboard_json = jsonencode({
     displayName = "${var.application}-${var.environment} Cost Optimization"
     mosaicLayout = {
+      columns = 12
       tiles = [
         {
           width  = 12
@@ -111,32 +149,16 @@ resource "google_monitoring_dashboard" "cost_optimization_dashboard" {
           widget = {
             title = "Cost Optimization Recommendations"
             text = {
-              content = "Monitor resource usage to identify optimization opportunities:\n\n1. Check for unused resources\n2. Review scaling settings\n3. Optimize log retention\n4. Monitor expensive operations"
+              content = "## Cost Optimization for ${var.application}-${var.environment}\n\n**Monthly Budget:** ${var.budget_amount}\n\n### Recommendations:\n1. Monitor resource usage patterns\n2. Review scaling settings regularly\n3. Optimize log retention policies\n4. Track expensive operations\n\n### Environment Settings:\n- **Log Retention:** ${var.environment == "prod" ? "30" : (var.environment == "uat" ? "14" : "7")} days\n- **Environment:** ${title(var.environment)}"
               format = "MARKDOWN"
-            }
-          }
-        },
-        {
-          width  = 6
-          height = 4
-          widget = {
-            title = "Budget Usage"
-            scorecard = {
-              timeSeriesQuery = {
-                timeSeriesFilter = {
-                  filter = "resource.type=\"billing_account\""
-                  aggregation = {
-                    alignmentPeriod  = "86400s"
-                    perSeriesAligner = "ALIGN_MAX"
-                  }
-                }
-              }
             }
           }
         }
       ]
     }
   })
+
+  depends_on = [google_project_service.required_apis]
 }
 
 # Log bucket configuration
@@ -146,9 +168,11 @@ resource "google_logging_project_bucket_config" "logging_bucket" {
   bucket_id  = "_Default"
   
   retention_days = var.log_retention_days != null ? var.log_retention_days : (var.environment == "prod" ? 30 : (var.environment == "uat" ? 14 : 7))
+
+  depends_on = [google_project_service.required_apis]
 }
 
-# Log metric for expensive operations
+# Simplified log metric for expensive operations
 resource "google_logging_metric" "expensive_operations" {
   name   = "${var.application}-${var.environment}-expensive-ops"
   filter = "textPayload:\"expensive-operation:\""
@@ -158,15 +182,12 @@ resource "google_logging_metric" "expensive_operations" {
     value_type  = "INT64"
   }
 
-  value_extractor = "EXTRACT(textPayload)"
-  
-  label_extractors = {
-    "operation_type" = "EXTRACT(textPayload)"
-  }
+  depends_on = [google_project_service.required_apis]
 }
 
 # Alert policy for expensive operations
 resource "google_monitoring_alert_policy" "expensive_operations_alert" {
+  count        = var.enable_alerts ? 1 : 0
   display_name = "${var.application}-${var.environment} Expensive Operations Alert"
   combiner     = "OR"
 
@@ -187,10 +208,13 @@ resource "google_monitoring_alert_policy" "expensive_operations_alert" {
 
   notification_channels = [google_monitoring_notification_channel.email_channel.name]
 
-  depends_on = [google_logging_metric.expensive_operations]
+  depends_on = [
+    google_logging_metric.expensive_operations,
+    google_project_service.required_apis
+  ]
 }
 
-# Log sink to exclude health checks and debug logs (cost optimization)
+# Simplified log sink for cost optimization
 resource "google_logging_project_sink" "cost_optimized_sink" {
   name        = "${var.application}-${var.environment}-cost-optimized-logs"
   destination = "logging.googleapis.com/projects/${var.project_id}/logs/${var.application}-${var.environment}-filtered"
@@ -206,4 +230,6 @@ resource "google_logging_project_sink" "cost_optimized_sink" {
   EOT
 
   unique_writer_identity = true
+
+  depends_on = [google_project_service.required_apis]
 }

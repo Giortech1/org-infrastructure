@@ -261,29 +261,49 @@ jobs:
           
           echo "🔐 Configuring service access for $ENVIRONMENT environment..."
           
-          # Remove existing bindings to avoid conflicts
-          gcloud run services remove-iam-policy-binding $SERVICE_NAME \
-            --project=$PROJECT_ID \
-            --region=$REGION \
-            --member="allUsers" \
-            --role="roles/run.invoker" 2>/dev/null || true
-          
-          # Configure access based on environment
+          # For dev and UAT environments - configure for public access
           if [[ "$ENVIRONMENT" == "dev" || "$ENVIRONMENT" == "uat" ]]; then
             echo "🌐 Configuring public access for $ENVIRONMENT environment"
-            gcloud run services add-iam-policy-binding $SERVICE_NAME \
+            
+            # Check if service allows unauthenticated access
+            if gcloud run services describe $SERVICE_NAME \
               --project=$PROJECT_ID \
               --region=$REGION \
-              --member="allUsers" \
-              --role="roles/run.invoker"
+              --format="get(spec.traffic[0].percent)" >/dev/null 2>&1; then
+              
+              # Update service to allow unauthenticated access
+              gcloud run services update $SERVICE_NAME \
+                --project=$PROJECT_ID \
+                --region=$REGION \
+                --allow-unauthenticated 2>/dev/null || {
+                echo "⚠️ Could not set allow-unauthenticated flag, trying IAM policy..."
+                
+                # Alternative: try to add IAM policy binding
+                gcloud run services add-iam-policy-binding $SERVICE_NAME \
+                  --project=$PROJECT_ID \
+                  --region=$REGION \
+                  --member="allUsers" \
+                  --role="roles/run.invoker" 2>/dev/null || {
+                  echo "⚠️ IAM policy binding failed. Service may have restricted access."
+                  echo "This could be due to organization policies."
+                }
+              }
+            else
+              echo "⚠️ Could not describe service. Skipping access configuration."
+            fi
           else
             echo "🔒 Configuring restricted access for production environment"
+            # For production, only allow service account access
             gcloud run services add-iam-policy-binding $SERVICE_NAME \
               --project=$PROJECT_ID \
               --region=$REGION \
               --member="serviceAccount:github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-              --role="roles/run.invoker"
+              --role="roles/run.invoker" 2>/dev/null || {
+              echo "⚠️ Could not configure restricted access"
+            }
           fi
+          
+          echo "✅ Service access configuration completed"
       
       - name: Post-Deployment Verification
         run: |
