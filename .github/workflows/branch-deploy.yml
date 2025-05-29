@@ -274,6 +274,11 @@ jobs:
           else
             echo "✅ No lock file found"
           fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0    
       
       - name: Terraform Init
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
