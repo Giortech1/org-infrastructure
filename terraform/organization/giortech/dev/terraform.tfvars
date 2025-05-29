@@ -1,3 +1,5 @@
-create_identity_pool = false
-create_budget        = false
-container_image      = "gcr.io/google-samples/hello-app:1.0"
+project_id = "your-real-project-id"
+region = "us-central1"
+environment = "dev"
+billing_account_id = "0141E4-398D5E-91A063"
+cloud_run_service_name = ""

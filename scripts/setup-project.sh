@@ -129,3 +129,82 @@ echo "Workload Identity Provider: projects/$(gcloud projects describe ${PROJECT_
 echo "Artifact Bucket: gs://${BUCKET_NAME}"
 echo ""
 echo "Use these values in your GitHub workflow files"
+
+# Check if main.tf exists, create if needed
+if [ ! -f "main.tf" ]; then
+  echo "Creating main.tf as it doesn't exist..."
+  cat > main.tf << 'EOFMAIN'
+terraform {
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 4.0"
+    }
+  }
+  backend "gcs" {
+    bucket = var.bucket_name
+  }
+}
+
+provider "google" {
+  project = var.project_id
+  region  = var.region
+}
+
+# Basic resources for testing
+resource "google_storage_bucket" "storage" {
+  name          = "${var.project_id}-bucket"
+  location      = var.region
+  force_destroy = true
+  uniform_bucket_level_access = true
+}
+
+# Variables
+variable "project_id" {
+  description = "The GCP project ID"
+  type        = string
+}
+
+variable "region" {
+  description = "The GCP region"
+  type        = string
+}
+
+variable "environment" {
+  description = "Environment (dev, uat, prod)"
+  type        = string
+}
+
+# Outputs
+output "project_id" {
+  value       = var.project_id
+  description = "The GCP project ID"
+}
+
+output "bucket_name" {
+  value       = google_storage_bucket.storage.name
+  description = "Storage bucket name"
+}
+EOFMAIN
+else
+  echo "main.tf already exists, using existing file"
+fi
+if [ -f "terraform.tfvars" ]; then
+  echo "terraform.tfvars already exists. Do you want to overwrite it? (y/n)"
+  read -r response
+  if [[ "$response" != "y" ]]; then
+    echo "Skipping creation of terraform.tfvars."
+    exit 0
+  fi
+fi
+
+cat > terraform.tfvars << EOF
+project_id  = "giortech-dev-project"
+region      = "us-central1"
+environment = "dev"
+EOF
+
+echo "Created terraform.tfvars:"
+cat terraform.tfvars
+echo "Created terraform.tfvars:"
+cat terraform.tfvars

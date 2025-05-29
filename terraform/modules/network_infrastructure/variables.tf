@@ -74,7 +74,20 @@ variable "skip_neg" {
   default     = false
 }
 
-# Monitoring and cost control variables
+# ✅ RESOLVED - Fixed variable defaults (cannot reference other variables)
+variable "log_retention_days" {
+  description = "Number of days to retain logs"
+  type        = number
+  default     = null
+}
+
+variable "enable_detailed_monitoring" {
+  description = "Whether to enable detailed monitoring"
+  type        = bool
+  default     = false
+}
+
+# Monitoring and cost control variables (from develop branch)
 variable "alert_email_address" {
   description = "Email address for alert notifications"
   type        = string
@@ -97,18 +110,6 @@ variable "billing_account_id" {
   description = "Billing account ID"
   type        = string
   default     = ""
-}
-
-variable "log_retention_days" {
-  description = "Number of days to retain logs"
-  type        = number
-  default     = var.environment == "prod" ? 30 : (var.environment == "uat" ? 14 : 7)
-}
-
-variable "enable_detailed_monitoring" {
-  description = "Whether to enable more detailed monitoring metrics"
-  type        = bool
-  default     = var.environment == "prod"
 }
 
 variable "http_latency_threshold" {
