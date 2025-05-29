@@ -1,20 +1,20 @@
 # Configure cost controls for giortech production environment
-module "cost_controls" {
+module "giortech_prod_cost_controls" {
   source = "../../../modules/cost_controls"
   
-  project_id         = "giortech-prod-project"
-  application        = "giortech"
-  environment        = "prod"
-  region             = "us-central1"
-  billing_account_id = "0141E4-398D5E-91A063"
-  budget_amount      = 100  # $100 monthly budget for production environment
+  project_id          = "giortech-prod-project"
+  application         = "giortech"
+  environment         = "prod"
+  region              = "us-central1"
+  billing_account_id  = "0141E4-398D5E-91A063"
+  budget_amount       = 100  # $100 monthly budget for production environment
   alert_email_address = "devops@academyaxis.io"
-  create_budget      = false # Create budget for production environment
+  create_budget       = false # Budget already exists, don't recreate
 }
 
 # Output the dashboard URLs for easy access
 output "cost_control_dashboards" {
-  value = module.cost_controls.dashboards
+  value = module.giortech_prod_cost_controls.dashboards
 }
 
 # Create a README with cost control best practices
@@ -36,11 +36,11 @@ This production environment is configured with cost controls to ensure we stay w
 ## Monitoring Dashboards
 
 Access the cost monitoring dashboards at:
-${module.cost_controls.dashboards.cost_dashboard}
+${module.giortech_prod_cost_controls.dashboards.cost_dashboard}
 
 ## Alert Notifications
 
-Budget alerts are sent to: ${module.cost_controls.notification_channel}
+Budget alerts are sent to: ${module.giortech_prod_cost_controls.notification_channel}
 
 ## Production Cost Optimization Strategies
 
@@ -53,7 +53,7 @@ Budget alerts are sent to: ${module.cost_controls.notification_channel}
 ## Tracking Expensive Operations
 
 The following metric tracks expensive operations:
-`${module.cost_controls.log_metric_name}`
+`${module.giortech_prod_cost_controls.log_metric_name}`
 
 To mark an operation as expensive, include the following in your logs:
 ```

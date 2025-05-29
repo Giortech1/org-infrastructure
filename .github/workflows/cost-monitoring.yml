@@ -38,7 +38,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       
       - name: Determine action type
         id: action
@@ -59,13 +59,13 @@ jobs:
           echo "day_of_week=$(date '+%A')" >> $GITHUB_OUTPUT
       
       - name: Google Auth for report project
-        uses: google-github-actions/auth@v1
+        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/421191438459/locations/global/workloadIdentityPools/github-pool/providers/github-provider
           service_account: github-actions-sa@giortech-dev-project.iam.gserviceaccount.com
       
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
+        uses: google-github-actions/setup-gcloud@v2
       
       - name: Install jq
         run: sudo apt-get install -y jq
@@ -119,10 +119,10 @@ jobs:
           
           | Project | Budget | Current Spend | % Used |
           |---------|--------|--------------|--------|
-          | giortech-dev-project | $50 | $$(RANDOM % 50) | $$(RANDOM % 100)% |
-          | giortech-uat-project | $50 | $$(RANDOM % 50) | $$(RANDOM % 100)% |
-          | giortech-prod-project | $100 | $$(RANDOM % 100) | $$(RANDOM % 100)% |
-          | **TOTAL** | **$300** | **$$(RANDOM % 300)** | **$$(RANDOM % 100)%** |
+          | giortech-dev-project | \$50 | \$\$(RANDOM % 50) | \$\$(RANDOM % 100)% |
+          | giortech-uat-project | \$50 | \$\$\$(RANDOM % 50) | \$\$\$(RANDOM % 100)% |
+          | giortech-prod-project | \$100 | \$\$\$(RANDOM % 100) | \$\$\$(RANDOM % 100)% |
+          | **TOTAL** | **\$300** | **\$\$\$(RANDOM % 300)** | **\$\$\$(RANDOM % 100)%** |
           
           ## Recommendations
           

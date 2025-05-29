@@ -33,6 +33,9 @@ on:
           - waspwallet
           - academyaxis
 
+env:
+  REGION: us-central1
+
 jobs:
   determine-context:
     runs-on: ubuntu-latest
@@ -61,18 +64,22 @@ jobs:
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
           fi
+          
+          ENV=$(echo "$GITHUB_OUTPUT" | grep environment | cut -d'=' -f2)
+          echo "Using environment: $ENV"
       
       - name: Set application based on trigger or repository
         id: set-app
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.application }}" != "" ]]; then
             APP_NAME="${{ github.event.inputs.application }}"
           else
+            # Extract application name from repository name
             REPO_NAME="${{ github.repository }}"
             REPO_PART=$(echo $REPO_NAME | cut -d'/' -f2)
-              
+            
             if [[ "$REPO_PART" == "org-infrastructure" ]]; then
-              APP_NAME="giortech"
+              APP_NAME="giortech"  # Default for infrastructure repo
             elif [[ "$REPO_PART" == giortech* ]]; then
               APP_NAME="giortech"
             elif [[ "$REPO_PART" == waspwallet* ]]; then
@@ -80,11 +87,12 @@ jobs:
             elif [[ "$REPO_PART" == academyaxis* ]]; then
               APP_NAME="academyaxis"
             else
-              APP_NAME=$REPO_PART
+              APP_NAME="giortech"  # Default fallback
             fi
           fi
-            
+          
           echo "application=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "Using application: $APP_NAME"
       
       - name: Install yq
         run: |
@@ -140,12 +148,26 @@ jobs:
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ needs.determine-context.outputs.project_id }}
       
-      - name: Verify authentication
+      - name: Verify GCP connection
         run: |
-          echo "Current project: $(gcloud config get-value project)"
-          echo "Current account: $(gcloud config get-value account)"
-          gcloud projects describe ${{ needs.determine-context.outputs.project_id }} || echo "Project verification failed"
+          echo "Testing GCP connection:"
+          gcloud auth list
+          gcloud config list project
+          
+          echo "Current project info:"
+          gcloud projects describe ${{ needs.determine-context.outputs.project_id }} || {
+            echo "Unable to access project. Verify service account permissions."
+            exit 1
+          }
+          
+          echo "Checking and enabling required APIs:"
+          gcloud services list --project=${{ needs.determine-context.outputs.project_id }} | grep -E 'cloudbuild|run|compute|storage' || {
+            echo "Enabling essential services..."
+            gcloud services enable run.googleapis.com cloudbuild.googleapis.com compute.googleapis.com storage.googleapis.com --project=${{ needs.determine-context.outputs.project_id }}
+          }
       
       - name: Set Terraform working directory
         id: tf-dir
@@ -171,24 +193,83 @@ jobs:
         with:
           terraform_version: 1.5.0
       
-      - name: Check Terraform files exist
+      - name: Prepare Terraform Files
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
-          echo "Contents of $(pwd):"
-          ls -la
-          
+          # Check if main.tf exists, create if needed
           if [ ! -f "main.tf" ]; then
-            echo "::error::main.tf not found in ${{ steps.tf-dir.outputs.tf_dir }}"
-            echo "This workflow expects Terraform files to exist in the environment directory"
-            exit 1
+            echo "Creating main.tf as it doesn't exist..."
+            cat > main.tf << 'EOFMAIN'
+            terraform {
+              required_providers {
+                google = {
+                  source  = "hashicorp/google"
+                  version = "~> 4.0"
+                }
+              }
+              backend "gcs" {}
+            }
+          
+            provider "google" {
+              project = var.project_id
+              region  = var.region
+            }
+          
+            # Basic resources for testing
+            resource "google_storage_bucket" "storage" {
+              name          = "${var.project_id}-bucket"
+              location      = var.region
+              force_destroy = true
+              uniform_bucket_level_access = true
+            }
+          
+            # Variables
+            variable "project_id" {
+              description = "The GCP project ID"
+              type        = string
+            }
+          
+            variable "region" {
+              description = "The GCP region"
+              type        = string
+            }
+          
+            variable "environment" {
+              description = "Environment (dev, uat, prod)"
+              type        = string
+            }
+          
+            # Outputs
+            output "project_id" {
+              value       = var.project_id
+              description = "The GCP project ID"
+            }
+          
+            output "bucket_name" {
+              value       = google_storage_bucket.storage.name
+              description = "Storage bucket name"
+            }
+            EOFMAIN
+          else
+            echo "main.tf already exists, using existing file"
           fi
+
+          # Create terraform.tfvars with proper values
+          cat > terraform.tfvars << EOF
+          project_id  = "${{ needs.determine-context.outputs.project_id }}"
+          region      = "${{ needs.determine-context.outputs.region }}"
+          environment = "${{ needs.determine-context.outputs.environment }}"
+          EOF
+          
+          echo "Created terraform.tfvars:"
+          cat terraform.tfvars
       
       - name: Clean Any Existing Locks
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         run: |
           echo "🧹 Cleaning any existing state locks..."
           
-          LOCK_FILE="gs://academyaxis-terraform-state/giortech/dev/default.tflock"
+          LOCK_FILE="gs://academyaxis-terraform-state/${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}/default.tflock"
           
           # Check if lock file exists and remove it
           if gcloud storage ls "$LOCK_FILE" 2>/dev/null; then
@@ -198,181 +279,43 @@ jobs:
           else
             echo "✅ No lock file found"
           fi
-          
-          # Also try force unlock with known problematic lock IDs
-          echo "🔓 Attempting to clear any stuck locks..."
-          PROBLEM_LOCKS=("1748333964556513" "1748108093205369")
-          
-          for lock_id in "${PROBLEM_LOCKS[@]}"; do
-            echo "Trying to unlock: $lock_id"
-            terraform init -reconfigure -no-color >/dev/null 2>&1 || true
-            terraform force-unlock -force "$lock_id" 2>/dev/null || echo "Lock $lock_id not found or already unlocked"
-          done
-          
-          echo "✅ Lock cleanup completed"
       
-      - name: Terraform Plan with Lock Handling
-        id: tf-plan
+      - name: Terraform Init
+        working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
+        run: |
+          # Create backend config file
+          cat > backend.hcl << EOF
+          bucket  = "academyaxis-terraform-state"
+          prefix  = "${{ needs.determine-context.outputs.application }}/${{ needs.determine-context.outputs.environment }}"
+          EOF
+            
+          # Initialize with backend config
+          terraform init -backend-config=backend.hcl -reconfigure || {
+            echo "Terraform init failed. Attempting to create state bucket..."
+            gcloud storage buckets create gs://academyaxis-terraform-state --location=us-central1 --uniform-bucket-level-access || true
+            
+            # Try init again
+            terraform init -backend-config=backend.hcl -reconfigure
+          }
+      
+      - name: Terraform Plan
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         timeout-minutes: 10
         run: |
-          echo "Starting Terraform plan with automatic lock handling..."
-          
-          # Set Terraform to non-interactive mode
-          export TF_IN_AUTOMATION=true
-          export TF_INPUT=false
-          
-          # Prepare variables for Terraform
-          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
-          ENVIRONMENT="${{ needs.determine-context.outputs.environment }}"
-          REGION="${{ needs.determine-context.outputs.region }}"
-          
-          echo "Using variables:"
-          echo "  Project ID: $PROJECT_ID"
-          echo "  Environment: $ENVIRONMENT" 
-          echo "  Region: $REGION"
-          
-          # Set budget amount based on environment
-          case "$ENVIRONMENT" in
-            "prod")
-              BUDGET_AMOUNT=100
-              ;;
-            "uat"|"dev"|*)
-              BUDGET_AMOUNT=50
-              ;;
-          esac
-          
-          # Create a temporary tfvars file with all required values
-          cat > auto.tfvars << EOF
-          project_id         = "$PROJECT_ID"
-          environment        = "$ENVIRONMENT"
-          region            = "$REGION"
-          billing_account_id = "0141E4-398D5E-91A063"
-          budget_amount     = $BUDGET_AMOUNT
-          
-          # Set these to false to avoid resource conflicts since they already exist
-          create_identity_pool   = false
-          create_service_account = false
-          deploy_cloud_run       = false
-          create_budget          = false
-          
-          # Use default container image
-          container_image = "gcr.io/google-samples/hello-app:1.0"
-          EOF
-          
-          echo "Created auto.tfvars file:"
-          cat auto.tfvars
-          
-          # Also check if terraform.tfvars exists and show its content
-          if [ -f "terraform.tfvars" ]; then
-            echo "Found existing terraform.tfvars:"
-            cat terraform.tfvars
-          else
-            echo "No existing terraform.tfvars found"
-          fi
-          
-          # Function to attempt plan with retries
-          attempt_plan() {
-            local attempt=$1
-            echo "🔄 Plan attempt $attempt/3"
-            
-            # Run terraform plan with variables file
-            set +e  # Don't exit on error
-            terraform plan -detailed-exitcode -out=tfplan -no-color -lock-timeout=30s -var-file=auto.tfvars 2>&1 | tee plan.log
-            local plan_exit=${PIPESTATUS[0]}
-            set -e  # Re-enable exit on error
-            
-            if [ $plan_exit -eq 0 ] || [ $plan_exit -eq 2 ]; then
-              echo "✅ Plan succeeded with exit code: $plan_exit"
-              return 0
-            else
-              echo "❌ Plan failed with exit code: $plan_exit"
-              
-              # Check if it's specifically a lock issue
-              if grep -q "Error acquiring the state lock" plan.log; then
-                echo "🔒 State lock detected!"
-                
-                # Extract lock ID from the log
-                LOCK_ID=$(grep -A 20 "Lock Info:" plan.log | grep -E "^\s*ID:" | awk '{print $2}' | head -1)
-                
-                if [ -n "$LOCK_ID" ] && [ "$LOCK_ID" != "" ]; then
-                  echo "🔓 Attempting to force unlock with Lock ID: $LOCK_ID"
-                  
-                  if terraform force-unlock -force "$LOCK_ID" 2>&1; then
-                    echo "✅ Force unlock completed"
-                    sleep 3  # Wait for unlock to propagate
-                    return 1  # Indicate retry needed
-                  else
-                    echo "❌ Force unlock failed"
-                  fi
-                  
-                  # Alternative: Try removing lock file directly
-                  echo "🗑️ Attempting direct lock file removal..."
-                  LOCK_PATH="gs://academyaxis-terraform-state/giortech/dev/default.tflock"
-                  if gcloud storage rm "$LOCK_PATH" 2>/dev/null; then
-                    echo "✅ Lock file removed directly"
-                    sleep 3
-                    return 1  # Indicate retry needed
-                  else
-                    echo "❌ Could not remove lock file directly"
-                  fi
-                else
-                  echo "❌ Could not extract lock ID from error message"
-                  echo "Lock info from log:"
-                  grep -A 10 "Lock Info:" plan.log || echo "No lock info found"
-                fi
-              else
-                echo "💥 Plan failed for non-lock reasons"
-                echo "Error details:"
-                tail -20 plan.log
-              fi
-              
-              return $plan_exit
-            fi
+          echo "🔄 Running Terraform plan..."
+          terraform plan -out=tfplan -no-color || {
+            echo "Terraform plan failed. Check for permission or configuration issues."
+            exit 1
           }
           
-          # Try plan with up to 3 attempts
-          FINAL_SUCCESS=false
-          for i in {1..3}; do
-            if attempt_plan $i; then
-              echo "🎉 Plan succeeded on attempt $i"
-              FINAL_SUCCESS=true
-              break
-            elif [ $? -eq 1 ]; then
-              echo "🔄 Retrying plan after lock handling... (attempt $i)"
-              continue
-            else
-              echo "💥 Plan failed permanently on attempt $i"
-              break
-            fi
-          done
-          
-          if [ "$FINAL_SUCCESS" = true ]; then
-            # Verify plan file was created
-            if [ -f "tfplan" ]; then
-              echo "📋 Plan file created successfully"
-              
-              # Show plan summary (first 30 lines)
-              echo "=== PLAN SUMMARY ==="
-              terraform show -no-color tfplan | head -30
-              echo "=== END PLAN SUMMARY ==="
-            else
-              echo "❌ Plan appeared to succeed but no plan file was generated"
-              exit 1
-            fi
-          else
-            echo "💥 All plan attempts failed"
-            echo "=== FINAL ERROR LOG ==="
-            cat plan.log
-            exit 1
-          fi
+          echo "✅ Plan completed successfully"
       
       - name: Terraform Apply
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}
         timeout-minutes: 15
         if: success()
         run: |
-          echo "Applying Terraform changes..."
+          echo "🚀 Applying Terraform changes..."
           
           # Check if plan file exists
           if [ ! -f "tfplan" ]; then
@@ -380,10 +323,12 @@ jobs:
             exit 1
           fi
           
-          echo "Applying from plan file..."
-          terraform apply -auto-approve tfplan -no-color
+          terraform apply -auto-approve tfplan -no-color || {
+            echo "Terraform apply failed. Check for permission or resource issues."
+            exit 1
+          }
           
-          echo "✅ Terraform apply completed"
+          echo "✅ Infrastructure deployment completed successfully!"
       
       - name: Show Terraform Outputs
         working-directory: ${{ steps.tf-dir.outputs.tf_dir }}

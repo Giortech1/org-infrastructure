@@ -74,7 +74,7 @@ variable "skip_neg" {
   default     = false
 }
 
-# ✅ FIXED - Removed invalid variable references in defaults
+# ✅ RESOLVED - Fixed variable defaults (cannot reference other variables)
 variable "log_retention_days" {
   description = "Number of days to retain logs"
   type        = number
@@ -85,4 +85,41 @@ variable "enable_detailed_monitoring" {
   description = "Whether to enable detailed monitoring"
   type        = bool
   default     = false
+}
+
+# Monitoring and cost control variables (from develop branch)
+variable "alert_email_address" {
+  description = "Email address for alert notifications"
+  type        = string
+  default     = "alerts@giortech.com"
+}
+
+variable "create_budget_alert" {
+  description = "Whether to create budget alert policies"
+  type        = bool
+  default     = true
+}
+
+variable "budget_amount" {
+  description = "Monthly budget amount in USD"
+  type        = number
+  default     = 100
+}
+
+variable "billing_account_id" {
+  description = "Billing account ID"
+  type        = string
+  default     = ""
+}
+
+variable "http_latency_threshold" {
+  description = "Threshold for HTTP latency alerts in milliseconds"
+  type        = number
+  default     = 2000  # 2 seconds
+}
+
+variable "error_rate_threshold" {
+  description = "Threshold for error rate alerts (as a decimal)"
+  type        = number
+  default     = 0.05  # 5%
 }
