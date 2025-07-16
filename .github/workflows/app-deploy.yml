@@ -37,6 +37,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: false
       
       - name: Set environment based on branch or input
         id: set-env
@@ -145,6 +147,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: false
       
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
