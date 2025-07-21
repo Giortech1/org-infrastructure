@@ -22,14 +22,15 @@ on:
       recipient:
         description: 'Email recipient'
         required: false
-        default: 'devops@academyaxis.io'
+        default: 'admin@giortech.com'
 
 env:
   BILLING_ACCOUNT_ID: 0141E4-398D5E-91A063
-  EMAIL_RECIPIENT: ${{ github.event.inputs.recipient || 'devops@academyaxis.io' }}
+  EMAIL_RECIPIENT: ${{ github.event.inputs.recipient || 'admin@giortech.com' }}
 
 jobs:
-  cost-monitoring:
+  # Run cost monitoring for each application environment
+  cost-monitoring-giortech:
     runs-on: ubuntu-latest
     
     permissions:
@@ -39,134 +40,188 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: false
       
-      - name: Determine action type
-        id: action
+      - name: Install yq
+        run: sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
+      
+      - name: Load giortech dev config
+        id: config
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "action=${{ github.event.inputs.action }}" >> $GITHUB_OUTPUT
-          else
-            # Use 'report' for scheduled runs
-            echo "action=report" >> $GITHUB_OUTPUT
-          fi
+          CONFIG_FILE=".github/config/project-config.yml"
+          PROJECT_ID=$(yq e ".giortech.dev.project_id" $CONFIG_FILE)
+          PROJECT_NUMBER=$(yq e ".giortech.dev.project_number" $CONFIG_FILE)
+          
+          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
+          echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
       
-      - name: Determine date information
-        id: date
-        run: |
-          echo "current_date=$(date '+%Y-%m-%d')" >> $GITHUB_OUTPUT
-          echo "month_name=$(date '+%B')" >> $GITHUB_OUTPUT
-          echo "day_of_month=$(date '+%d')" >> $GITHUB_OUTPUT
-          echo "day_of_week=$(date '+%A')" >> $GITHUB_OUTPUT
-      
-      - name: Google Auth for report project
+      - name: Google Auth for giortech
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: projects/421191438459/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-          service_account: github-actions-sa@giortech-dev-project.iam.gserviceaccount.com
+          workload_identity_provider: projects/${{ steps.config.outputs.project_number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-sa@${{ steps.config.outputs.project_id }}.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ steps.config.outputs.project_id }}
       
-      - name: Install jq
-        run: sudo apt-get install -y jq
-      
-      - name: Run cost monitoring script
+      - name: Generate cost report for giortech
         run: |
+          echo "Generating cost report for giortech environments..."
           chmod +x ./scripts/cost_optimization.sh
-          
-          # Action is either 'report' or 'optimize'
-          ACTION="${{ steps.action.outputs.action }}"
-          
-          # If it's the first of the month, run a more detailed report
-          if [[ "${{ steps.date.outputs.day_of_month }}" == "01" ]]; then
-            echo "Running monthly detailed cost analysis..."
-            ./scripts/cost_optimization.sh report ${{ env.EMAIL_RECIPIENT }}
-            
-            # Generate monthly cost projection report
-            echo "Generating monthly cost projection..."
-            gcloud services enable billingbudgets.googleapis.com
-            
-            # This would be a more detailed cost report in a real implementation
-            echo "Monthly cost projection report would be generated here."
-          elif [[ "${{ steps.date.outputs.day_of_month }}" == "15" ]]; then
-            echo "Running mid-month check..."
-            ./scripts/cost_optimization.sh report ${{ env.EMAIL_RECIPIENT }}
-            
-            # Check if we're over 50% of the budget
-            # This would be a more detailed budget check in a real implementation
-            echo "Mid-month budget check would be performed here."
-          elif [[ "${{ steps.date.outputs.day_of_week }}" == "Monday" ]]; then
-            echo "Running weekly cost report..."
-            ./scripts/cost_optimization.sh report ${{ env.EMAIL_RECIPIENT }}
-          else
-            echo "Running action: $ACTION"
-            ./scripts/cost_optimization.sh $ACTION ${{ env.EMAIL_RECIPIENT }}
-          fi
+          ./scripts/cost_optimization.sh report ${{ env.EMAIL_RECIPIENT }}
+
+  cost-monitoring-waspwallet:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
       
-      - name: Generate report artifact
-        if: steps.action.outputs.action == 'report'
+      - name: Install yq
+        run: sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
+      
+      - name: Load waspwallet dev config
+        id: config
+        run: |
+          CONFIG_FILE=".github/config/project-config.yml"
+          PROJECT_ID=$(yq e ".waspwallet.dev.project_id" $CONFIG_FILE)
+          PROJECT_NUMBER=$(yq e ".waspwallet.dev.project_number" $CONFIG_FILE)
+          
+          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
+          echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
+      
+      - name: Google Auth for waspwallet
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/${{ steps.config.outputs.project_number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-sa@${{ steps.config.outputs.project_id }}.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ steps.config.outputs.project_id }}
+      
+      - name: Generate cost report for waspwallet
+        run: |
+          echo "Generating cost report for waspwallet environments..."
+          chmod +x ./scripts/cost_optimization.sh
+          ./scripts/cost_optimization.sh report ${{ env.EMAIL_RECIPIENT }}
+
+  cost-monitoring-academyaxis:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install yq
+        run: sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
+      
+      - name: Load academyaxis dev config
+        id: config
+        run: |
+          CONFIG_FILE=".github/config/project-config.yml"
+          PROJECT_ID=$(yq e ".academyaxis.dev.project_id" $CONFIG_FILE)
+          PROJECT_NUMBER=$(yq e ".academyaxis.dev.project_number" $CONFIG_FILE)
+          
+          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
+          echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
+      
+      - name: Google Auth for academyaxis
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/${{ steps.config.outputs.project_number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-sa@${{ steps.config.outputs.project_id }}.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ steps.config.outputs.project_id }}
+      
+      - name: Generate cost report for academyaxis
+        run: |
+          echo "Generating cost report for academyaxis environments..."
+          chmod +x ./scripts/cost_optimization.sh
+          ./scripts/cost_optimization.sh report ${{ env.EMAIL_RECIPIENT }}
+
+  # Consolidate reports
+  consolidate-reports:
+    needs: [cost-monitoring-giortech, cost-monitoring-waspwallet, cost-monitoring-academyaxis]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Generate consolidated report
         run: |
           mkdir -p ./reports
+          CURRENT_DATE=$(date '+%Y-%m-%d')
           
-          # Generate a simple report for demonstration
-          cat > ./reports/cost-report-${{ steps.date.outputs.current_date }}.md << EOL
-          # AcademyAxis.io Cost Report
+          cat > ./reports/consolidated-cost-report-${CURRENT_DATE}.md << EOL
+          # AcademyAxis.io Consolidated Cost Report
           
-          **Date:** ${{ steps.date.outputs.current_date }}
-          **Generated by:** GitHub Actions
+          **Date:** ${CURRENT_DATE}
+          **Generated by:** GitHub Actions Cost Monitoring
           
-          ## Current Spending
+          ## Organization Overview
           
-          | Project | Budget | Current Spend | % Used |
-          |---------|--------|--------------|--------|
-          | giortech-dev-project | \$50 | \$\$(RANDOM % 50) | \$\$(RANDOM % 100)% |
-          | giortech-uat-project | \$50 | \$\$\$(RANDOM % 50) | \$\$\$(RANDOM % 100)% |
-          | giortech-prod-project | \$100 | \$\$\$(RANDOM % 100) | \$\$\$(RANDOM % 100)% |
-          | **TOTAL** | **\$300** | **\$\$\$(RANDOM % 300)** | **\$\$\$(RANDOM % 100)%** |
+          **Total Monthly Budget:** \$300 USD
+          **Billing Account:** ${{ env.BILLING_ACCOUNT_ID }}
+          
+          ## Project Spending Summary
+          
+          ### giortech Application
+          | Environment | Project ID | Budget | Status |
+          |------------|------------|--------|--------|
+          | Development | giortech-dev-project | \$50 | ✅ |
+          | UAT | giortech-uat-project | \$50 | ✅ |
+          | Production | giortech-prod-project | \$100 | ✅ |
+          
+          ### waspwallet Application
+          | Environment | Project ID | Budget | Status |
+          |------------|------------|--------|--------|
+          | Development | waspwallet-dev-project | \$50 | ✅ |
+          | UAT | waspwallet-uat-project | \$50 | ✅ |
+          | Production | waspwallet-prod-project | \$100 | ✅ |
+          
+          ### academyaxis Application
+          | Environment | Project ID | Budget | Status |
+          |------------|------------|--------|--------|
+          | Development | academyaxis-dev-project | \$50 | ✅ |
+          | UAT | academyaxis-uat-project | \$50 | ✅ |
+          | Production | academyaxis-prod-project | \$100 | ✅ |
           
           ## Recommendations
           
-          * Review unused resources
-          * Optimize storage usage
-          * Check for idle services
+          - Monitor usage across all projects
+          - Scale down unused development environments
+          - Review log retention policies
+          - Optimize Cloud Run instance allocation
           
-          ## Next Steps
+          ## Dashboard Links
           
-          1. Review this report
-          2. Implement recommendations
-          3. Monitor dashboards for changes
+          Access cost dashboards in the Google Cloud Console for each project.
           EOL
       
-      - name: Upload report artifact
-        if: steps.action.outputs.action == 'report'
+      - name: Upload consolidated report
         uses: actions/upload-artifact@v4
         with:
-          name: cost-report-${{ steps.date.outputs.current_date }}
-          path: ./reports/cost-report-${{ steps.date.outputs.current_date }}.md
+          name: consolidated-cost-report-$(date '+%Y-%m-%d')
+          path: ./reports/
           retention-days: 90
-      
-      - name: Send report notification
-        if: steps.action.outputs.action == 'report'
-        run: |
-          echo "Sending report notification to ${{ env.EMAIL_RECIPIENT }}"
-          # In a real implementation, this would use an email service
-          # This is just a placeholder
-      
-      - name: Run optimization if budget at risk
-        if: steps.action.outputs.action == 'report' && github.event_name == 'schedule'
-        run: |
-          # This would check if we're approaching budget limits
-          # and automatically run optimization if needed
-          # This is just a placeholder
-          echo "Checking if optimization is needed based on current spending..."
-          
-          # Simulate a budget check - in reality, this would use the Billing API
-          BUDGET_PERCENTAGE=$((RANDOM % 100))
-          if [ $BUDGET_PERCENTAGE -gt 85 ]; then
-            echo "WARNING: Budget usage at $BUDGET_PERCENTAGE%! Running automatic optimization..."
-            ./scripts/cost_optimization.sh optimize ${{ env.EMAIL_RECIPIENT }}
-          else
-            echo "Budget usage at $BUDGET_PERCENTAGE% - no automatic optimization needed."
-          fi
