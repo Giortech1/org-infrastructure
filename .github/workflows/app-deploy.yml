@@ -1,4 +1,4 @@
-# .github/workflows/app-deploy.yml
+# .github/workflows/app-deploy.yml - FIXED VERSION
 name: Deploy Application
 
 on:
@@ -33,6 +33,8 @@ jobs:
       max_instances: ${{ steps.load-config.outputs.max_instances }}
       memory: ${{ steps.load-config.outputs.memory }}
       cpu: ${{ steps.load-config.outputs.cpu }}
+      repository_type: ${{ steps.set-app.outputs.repository_type }}
+      should_deploy: ${{ steps.set-app.outputs.should_deploy }}
     
     steps:
       - name: Checkout code
@@ -53,21 +55,42 @@ jobs:
             echo "environment=dev" >> $GITHUB_OUTPUT
           fi
       
-      - name: Set application based on repository
+      - name: Set application and repository type
         id: set-app
         run: |
-          # Extract application name from repository name
+          # Extract repository name
           REPO_NAME="${{ github.repository }}"
           REPO_PART=$(echo $REPO_NAME | cut -d'/' -f2)
           
-          if [[ "$REPO_PART" == *"giortech"* ]]; then
+          echo "Repository: $REPO_NAME"
+          echo "Repository part: $REPO_PART"
+          
+          # Check repository type and set application
+          if [[ "$REPO_PART" == "org-infrastructure" ]]; then
+            echo "repository_type=infrastructure" >> $GITHUB_OUTPUT
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+            echo "application=giortech" >> $GITHUB_OUTPUT  # Default for infrastructure
+            echo "🏗️ Infrastructure repository detected - skipping application deployment"
+          elif [[ "$REPO_PART" == *"giortech"* ]]; then
+            echo "repository_type=application" >> $GITHUB_OUTPUT
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
             echo "application=giortech" >> $GITHUB_OUTPUT
+            echo "🌐 Giortech application repository detected"
           elif [[ "$REPO_PART" == *"waspwallet"* ]]; then
+            echo "repository_type=application" >> $GITHUB_OUTPUT
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
             echo "application=waspwallet" >> $GITHUB_OUTPUT
+            echo "📱 WaspWallet application repository detected"
           elif [[ "$REPO_PART" == *"academyaxis"* ]]; then
+            echo "repository_type=application" >> $GITHUB_OUTPUT
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
             echo "application=academyaxis" >> $GITHUB_OUTPUT
+            echo "🎓 AcademyAxis application repository detected"
           else
-            echo "application=giortech" >> $GITHUB_OUTPUT  # Default fallback
+            echo "repository_type=unknown" >> $GITHUB_OUTPUT
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+            echo "application=giortech" >> $GITHUB_OUTPUT
+            echo "❓ Unknown repository type - skipping deployment"
           fi
       
       - name: Load configuration
@@ -75,71 +98,104 @@ jobs:
         run: |
           APP="${{ steps.set-app.outputs.application }}"
           ENV="${{ steps.set-env.outputs.environment }}"
+          REPO_TYPE="${{ steps.set-app.outputs.repository_type }}"
           
-          echo "Loading config for $APP in $ENV environment"
+          echo "Loading config for $APP in $ENV environment (repo type: $REPO_TYPE)"
           
-          # Configuration mapping based on your project knowledge
-          case "$APP-$ENV" in
-            "giortech-dev")
-              echo "project_id=giortech-dev-project" >> $GITHUB_OUTPUT
-              echo "project_number=653675374627" >> $GITHUB_OUTPUT
-              echo "service_name=giortech-dev" >> $GITHUB_OUTPUT
-              ;;
-            "giortech-uat")
-              echo "project_id=giortech-uat-project" >> $GITHUB_OUTPUT
-              echo "project_number=28962750525" >> $GITHUB_OUTPUT
-              echo "service_name=giortech-uat" >> $GITHUB_OUTPUT
-              ;;
-            "giortech-prod")
-              echo "project_id=giortech-prod-project" >> $GITHUB_OUTPUT
-              echo "project_number=371831144642" >> $GITHUB_OUTPUT
-              echo "service_name=giortech-prod" >> $GITHUB_OUTPUT
-              ;;
-            "waspwallet-dev")
-              echo "project_id=waspwallet-dev-project" >> $GITHUB_OUTPUT
-              echo "project_number=260301647000" >> $GITHUB_OUTPUT
-              echo "service_name=waspwallet-dev" >> $GITHUB_OUTPUT
-              ;;
-            "waspwallet-uat")
-              echo "project_id=waspwallet-uat-project" >> $GITHUB_OUTPUT
-              echo "project_number=875164789138" >> $GITHUB_OUTPUT
-              echo "service_name=waspwallet-uat" >> $GITHUB_OUTPUT
-              ;;
-            "waspwallet-prod")
-              echo "project_id=waspwallet-prod-project" >> $GITHUB_OUTPUT
-              echo "project_number=142392555937" >> $GITHUB_OUTPUT
-              echo "service_name=waspwallet-prod" >> $GITHUB_OUTPUT
-              ;;
-            "academyaxis-dev")
-              echo "project_id=academyaxis-dev-project" >> $GITHUB_OUTPUT
-              echo "project_number=1052274887859" >> $GITHUB_OUTPUT
-              echo "service_name=academyaxis-dev" >> $GITHUB_OUTPUT
-              ;;
-            "academyaxis-uat")
-              echo "project_id=academyaxis-uat-project" >> $GITHUB_OUTPUT
-              echo "project_number=415071431590" >> $GITHUB_OUTPUT
-              echo "service_name=academyaxis-uat" >> $GITHUB_OUTPUT
-              ;;
-            "academyaxis-prod")
-              echo "project_id=academyaxis-prod-project" >> $GITHUB_OUTPUT
-              echo "project_number=552816176477" >> $GITHUB_OUTPUT
-              echo "service_name=academyaxis-prod" >> $GITHUB_OUTPUT
-              ;;
-            *)
-              echo "::error::Unknown application-environment combination: $APP-$ENV"
-              exit 1
-              ;;
-          esac
-          
-          # Common configuration
-          echo "region=us-central1" >> $GITHUB_OUTPUT
-          echo "memory=512Mi" >> $GITHUB_OUTPUT
-          echo "cpu=1" >> $GITHUB_OUTPUT
-          echo "min_instances=0" >> $GITHUB_OUTPUT
-          echo "max_instances=10" >> $GITHUB_OUTPUT
+          # Only load config if we're deploying
+          if [[ "${{ steps.set-app.outputs.should_deploy }}" == "true" ]]; then
+            # Configuration mapping based on your project knowledge
+            case "$APP-$ENV" in
+              "giortech-dev")
+                echo "project_id=giortech-dev-project" >> $GITHUB_OUTPUT
+                echo "project_number=653675374627" >> $GITHUB_OUTPUT
+                echo "service_name=giortech-dev" >> $GITHUB_OUTPUT
+                ;;
+              "giortech-uat")
+                echo "project_id=giortech-uat-project" >> $GITHUB_OUTPUT
+                echo "project_number=28962750525" >> $GITHUB_OUTPUT
+                echo "service_name=giortech-uat" >> $GITHUB_OUTPUT
+                ;;
+              "giortech-prod")
+                echo "project_id=giortech-prod-project" >> $GITHUB_OUTPUT
+                echo "project_number=371831144642" >> $GITHUB_OUTPUT
+                echo "service_name=giortech-prod" >> $GITHUB_OUTPUT
+                ;;
+              "waspwallet-dev")
+                echo "project_id=waspwallet-dev-project" >> $GITHUB_OUTPUT
+                echo "project_number=260301647000" >> $GITHUB_OUTPUT
+                echo "service_name=waspwallet-dev" >> $GITHUB_OUTPUT
+                ;;
+              "waspwallet-uat")
+                echo "project_id=waspwallet-uat-project" >> $GITHUB_OUTPUT
+                echo "project_number=875164789138" >> $GITHUB_OUTPUT
+                echo "service_name=waspwallet-uat" >> $GITHUB_OUTPUT
+                ;;
+              "waspwallet-prod")
+                echo "project_id=waspwallet-prod-project" >> $GITHUB_OUTPUT
+                echo "project_number=142392555937" >> $GITHUB_OUTPUT
+                echo "service_name=waspwallet-prod" >> $GITHUB_OUTPUT
+                ;;
+              "academyaxis-dev")
+                echo "project_id=academyaxis-dev-project" >> $GITHUB_OUTPUT
+                echo "project_number=1052274887859" >> $GITHUB_OUTPUT
+                echo "service_name=academyaxis-dev" >> $GITHUB_OUTPUT
+                ;;
+              "academyaxis-uat")
+                echo "project_id=academyaxis-uat-project" >> $GITHUB_OUTPUT
+                echo "project_number=415071431590" >> $GITHUB_OUTPUT
+                echo "service_name=academyaxis-uat" >> $GITHUB_OUTPUT
+                ;;
+              "academyaxis-prod")
+                echo "project_id=academyaxis-prod-project" >> $GITHUB_OUTPUT
+                echo "project_number=552816176477" >> $GITHUB_OUTPUT
+                echo "service_name=academyaxis-prod" >> $GITHUB_OUTPUT
+                ;;
+              *)
+                echo "::error::Unknown application-environment combination: $APP-$ENV"
+                exit 1
+                ;;
+            esac
+            
+            # Common configuration
+            echo "region=us-central1" >> $GITHUB_OUTPUT
+            echo "memory=512Mi" >> $GITHUB_OUTPUT
+            echo "cpu=1" >> $GITHUB_OUTPUT
+            echo "min_instances=0" >> $GITHUB_OUTPUT
+            echo "max_instances=10" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping configuration load for infrastructure repository"
+          fi
 
+  # Job for infrastructure repository - no deployment
+  infrastructure-info:
+    needs: determine-context
+    if: needs.determine-context.outputs.repository_type == 'infrastructure'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Infrastructure repository information
+        run: |
+          echo "🏗️ org-infrastructure Repository"
+          echo "================================="
+          echo ""
+          echo "This is the infrastructure management repository."
+          echo "It contains Terraform configurations, setup scripts, and deployment workflows."
+          echo ""
+          echo "For application deployments, use the respective application repositories:"
+          echo "  📱 giortech-app     → Giortech website"
+          echo "  📱 waspwallet-app   → WaspWallet mobile app"
+          echo "  📱 academyaxis-app  → AcademyAxis platform"
+          echo ""
+          echo "Environment: ${{ needs.determine-context.outputs.environment }}"
+          echo "Application: ${{ needs.determine-context.outputs.application }}"
+          echo ""
+          echo "ℹ️ No Docker build or deployment will be performed from this repository."
+
+  # Job for application repositories - full deployment
   get-workload-identity:
     needs: determine-context
+    if: needs.determine-context.outputs.should_deploy == 'true'
     runs-on: ubuntu-latest
     outputs:
       wi_provider: ${{ steps.set-wi.outputs.wi_provider }}
@@ -157,6 +213,7 @@ jobs:
 
   deploy:
     needs: [determine-context, get-workload-identity]
+    if: needs.determine-context.outputs.should_deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     
@@ -169,6 +226,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      
+      - name: Verify Dockerfile exists
+        run: |
+          if [ ! -f "Dockerfile" ]; then
+            echo "❌ Dockerfile not found in application repository"
+            echo "📋 Available files:"
+            ls -la
+            echo ""
+            echo "💡 Make sure you're running this workflow from an application repository that contains:"
+            echo "   - Dockerfile"
+            echo "   - Application source code"
+            exit 1
+          fi
+          echo "✅ Dockerfile found - proceeding with deployment"
       
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
