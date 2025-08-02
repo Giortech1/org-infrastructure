@@ -1,116 +1,226 @@
-# .github/config/project-config.yml
-giortech:
-  dev:
-    project_id: "giortech-dev-project"
-    project_number: "653675374627"
-    region: "us-central1"
-    service_name: "giortech-dev"
-    min_instances: 0
-    max_instances: 5
-    memory: "512Mi"
-    cpu: 1
-  uat:
-    project_id: "giortech-uat-project"
-    project_number: "28962750525"
-    region: "us-central1"
-    service_name: "giortech-uat"
-    min_instances: 0
-    max_instances: 10
-    memory: "512Mi"
-    cpu: 1
-  prod:
-    project_id: "giortech-prod-project"
-    project_number: "371831144642"
-    region: "us-central1"
-    service_name: "giortech-prod"
-    min_instances: 1
-    max_instances: 5
-    memory: "1Gi"
-    cpu: 2
-
-waspwallet:
-  dev:
-    project_id: "waspwallet-dev-project"
-    project_number: "260301647000"
-    region: "us-central1"
-    service_name: "waspwallet-dev"
-    min_instances: 0
-    max_instances: 5
-    memory: "512Mi"
-    cpu: 1
-  uat:
-    project_id: "waspwallet-uat-project"
-    project_number: "875164789138"
-    region: "us-central1"
-    service_name: "waspwallet-uat"
-    min_instances: 0
-    max_instances: 10
-    memory: "512Mi"
-    cpu: 1
-  prod:
-    project_id: "waspwallet-prod-project"
-    project_number: "142392555937"
-    region: "us-central1"
-    service_name: "waspwallet-prod"
-    min_instances: 1
-    max_instances: 5
-    memory: "1Gi"
-    cpu: 2
+# Multi-Tenant Configuration for AcademyAxis Global Platform
+# This file defines regional deployments with Cameroon/Africa as primary focus
 
 academyaxis:
+  # Development Environment
   dev:
-    project_id: "academyaxis-dev-project"
-    project_number: "1052274887859"
-    region: "us-central1"
-    service_name: "academyaxis-dev"
-    min_instances: 0
-    max_instances: 5
-    memory: "512Mi"
-    cpu: 1
+    # Africa Region (Primary - Cameroon Focus) - Using existing project
+    africa:
+      project_id: "academyaxis-dev-project"     
+      project_number: "1052274887859"          
+      service_name: "academyaxis-africa-dev"
+      gcp_region: "europe-west1"  # Closest to Cameroon
+      memory: "1Gi"
+      cpu: "1"
+      min_instances: 0
+      max_instances: 5
+      display_name: "🇨🇲 Africa Development (Cameroon)"
+      
+      # Cameroon-specific configuration
+      supported_languages: ["fr-CM", "en-CM"]
+      default_language: "fr-CM"
+      currency: "XAF"
+      timezone: "Africa/Douala"
+      payment_providers: ["orange_money", "mtn_momo", "express_union"]
+      sms_provider: "africa_talking"
+      education_system: "cameroon_bilingual"
+      grading_scale: "20_point"
+      
+    # Europe Region (Future expansion)
+    europe:
+      project_id: "academyaxis-europe-dev"
+      project_number: "TBD"
+      service_name: "academyaxis-europe-dev"
+      gcp_region: "europe-west1"
+      memory: "1Gi"
+      cpu: "1"
+      min_instances: 0
+      max_instances: 3
+      display_name: "🇪🇺 Europe Development"
+      
+      supported_languages: ["en", "fr", "de", "es"]
+      default_language: "en"
+      currency: "EUR"
+      timezone: "Europe/Paris"
+      
+    # Americas Region (Future expansion)
+    americas:
+      project_id: "academyaxis-americas-dev"
+      project_number: "TBD"
+      service_name: "academyaxis-americas-dev"
+      gcp_region: "us-central1"
+      memory: "1Gi"
+      cpu: "1"
+      min_instances: 0
+      max_instances: 3
+      display_name: "🇺🇸 Americas Development"
+      
+      supported_languages: ["en", "es", "pt"]
+      default_language: "en"
+      currency: "USD"
+      timezone: "America/New_York"
+      
+    # Asia Region (Future expansion)
+    asia:
+      project_id: "academyaxis-asia-dev"
+      project_number: "TBD"
+      service_name: "academyaxis-asia-dev"
+      gcp_region: "asia-southeast1"
+      memory: "1Gi"
+      cpu: "1"
+      min_instances: 0
+      max_instances: 3
+      display_name: "🇸🇬 Asia Development"
+      
+      supported_languages: ["en", "zh", "ja", "ko"]
+      default_language: "en"
+      currency: "USD"
+      timezone: "Asia/Singapore"
+
+  # UAT Environment
   uat:
-    project_id: "academyaxis-uat-project"
-    project_number: "415071431590"
-    region: "us-central1"
-    service_name: "academyaxis-uat"
-    min_instances: 1
-    max_instances: 5
-    memory: "512Mi"
-    cpu: 1
+    # Africa Region (Primary for UAT testing) 
+    africa:
+      project_id: "academyaxis-uat-project"     
+      project_number: "415071431590"           
+      service_name: "academyaxis-africa-uat"
+      gcp_region: "europe-west1"
+      memory: "2Gi"
+      cpu: "1"
+      min_instances: 0
+      max_instances: 8
+      display_name: "🇨🇲 Africa UAT (Cameroon Testing)"
+      
+      # Cameroon UAT configuration
+      supported_languages: ["fr-CM", "en-CM"]
+      default_language: "fr-CM"
+      currency: "XAF"
+      timezone: "Africa/Douala"
+      payment_providers: ["orange_money", "mtn_momo"]
+      sms_provider: "africa_talking"
+      education_system: "cameroon_bilingual"
+      grading_scale: "20_point"
+
+  # Production Environment
   prod:
-    project_id: "academyaxis-prod-project"
-    project_number: "552816176477"
-    region: "us-central1"
-    service_name: "academyaxis-prod"
-    min_instances: 1
-    max_instances: 5
-    memory: "1Gi"
-    cpu: 2
-# AcademyAxis-237 Application Configuration
-academyaxis237:
-  dev:
-    project_id: "academyaxis-237-dev-project"
-    project_number: "425169602074"
-    region: "us-central1"
-    service_name: "academyaxis237-dev"
-    min_instances: 0
-    max_instances: 5
-    memory: "512Mi"
-    cpu: 1
-  uat:
-    project_id: "academyaxis-237-uat-project"
-    project_number: "523018028271"
-    region: "us-central1"
-    service_name: "academyaxis237-uat"
-    min_instances: 0
-    max_instances: 10
-    memory: "512Mi"
-    cpu: 1
-  prod:
-    project_id: "academyaxis-237-prod-project"
-    project_number: "684266177356"
-    region: "us-central1"
-    service_name: "academyaxis237-prod"
-    min_instances: 1
-    max_instances: 5
-    memory: "1Gi"
-    cpu: 2
+    # Africa Region (PRIMARY LAUNCH MARKET)
+    africa:
+      project_id: "academyaxis-prod-project"    
+      project_number: "552816176477"           
+      service_name: "academyaxis-africa-prod"
+      gcp_region: "europe-west1"  
+      memory: "4Gi"  # Higher for production
+      cpu: "2"       # Higher for production
+      min_instances: 2  # Always running for Cameroon schools
+      max_instances: 25 # Higher scale for primary market
+      display_name: "🇨🇲 Africa Production (Cameroon LIVE)"
+      
+      # Production Cameroon configuration
+      supported_languages: ["fr-CM", "en-CM"]
+      default_language: "fr-CM"
+      currency: "XAF"
+      timezone: "Africa/Douala"
+      payment_providers: ["orange_money", "mtn_momo", "express_union"]
+      sms_provider: "africa_talking"
+      education_system: "cameroon_bilingual"
+      grading_scale: "20_point"
+      
+      # Production-specific settings
+      cdn_enabled: true
+      backup_enabled: true
+      monitoring_enhanced: true
+      ssl_certificate: "managed"
+      
+    # Europe Region (Future production expansion)
+    europe:
+      project_id: "academyaxis-europe-prod"
+      project_number: "TBD"
+      service_name: "academyaxis-europe-prod"
+      gcp_region: "europe-west1"
+      memory: "2Gi"
+      cpu: "2"
+      min_instances: 1
+      max_instances: 15
+      display_name: "🇪🇺 Europe Production"
+      
+      supported_languages: ["en", "fr", "de", "es"]
+      default_language: "en"
+      currency: "EUR"
+      timezone: "Europe/Paris"
+      
+    # Americas Region (Future production expansion)
+    americas:
+      project_id: "academyaxis-americas-prod"
+      project_number: "TBD"
+      service_name: "academyaxis-americas-prod"
+      gcp_region: "us-central1"
+      memory: "2Gi"
+      cpu: "2"
+      min_instances: 1
+      max_instances: 15
+      display_name: "🇺🇸 Americas Production"
+      
+      supported_languages: ["en", "es", "pt"]
+      default_language: "en"
+      currency: "USD"
+      timezone: "America/New_York"
+      
+    # Asia Region (Future production expansion)
+    asia:
+      project_id: "academyaxis-asia-prod"
+      project_number: "TBD"
+      service_name: "academyaxis-asia-prod"
+      gcp_region: "asia-southeast1"
+      memory: "2Gi"
+      cpu: "2"
+      min_instances: 1
+      max_instances: 15
+      display_name: "🇸🇬 Asia Production"
+      
+      supported_languages: ["en", "zh", "ja", "ko"]
+      default_language: "en"
+      currency: "USD"
+      timezone: "Asia/Singapore"
+
+# Global configuration shared across all regions
+global:
+  # Multi-tenant features
+  features:
+    cross_school_parents: true
+    school_isolation: true
+    regional_compliance: true
+    bilingual_support: true
+    mobile_payments: true
+    
+  # Default resource limits
+  defaults:
+    timeout: 300
+    concurrency: 100
+    request_timeout: 30
+    
+  # Monitoring configuration
+  monitoring:
+    health_check_path: "/health"
+    metrics_enabled: true
+    logging_level: "info"
+    
+  # Security configuration
+  security:
+    cors_enabled: true
+    rate_limiting: true
+    helmet_enabled: true
+
+# Regional priorities (Cameroon/Africa first)
+deployment_strategy:
+  primary_region: "africa"
+  primary_market: "cameroon"
+  rollout_order: ["africa", "europe", "americas", "asia"]
+  
+# Budget allocation per region (monthly USD)
+budget:
+  total_monthly_limit: 300
+  allocation:
+    africa: 200      # Primary focus - Cameroon launch
+    europe: 50       # Future expansion
+    americas: 25     # Future expansion
+    asia: 25         # Future expansion
