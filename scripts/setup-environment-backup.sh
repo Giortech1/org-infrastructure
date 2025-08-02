@@ -5,8 +5,7 @@
 set -e
 
 # Configuration
-BILLING_ACCOUNT_ID="0141E4-398D5E-91A063"  # Default billing account
-ACADEMYAXIS_237_BILLING_ID="0156AD-1517D4-139949"  # AcademyAxis-237 billing account
+BILLING_ACCOUNT_ID="0141E4-398D5E-91A063"
 GITHUB_ORG="giortech1"
 GITHUB_REPO="org-infrastructure"
 ORGANIZATION_ID="126324232219"  # AcademyAxis.io organization ID
@@ -98,8 +97,8 @@ check_prerequisites() {
         exit 1
     fi
     
-    if ! gcloud billing accounts describe $ACADEMYAXIS_237_BILLING_ID &>/dev/null; then
-        echo -e "${RED}❌ Cannot access AcademyAxis-237 billing account $ACADEMYAXIS_237_BILLING_ID. Please check permissions.${NC}"
+    if ! gcloud billing accounts describe $BILLING_ACCOUNT_ID &>/dev/null; then
+        echo -e "${RED}❌ Cannot access billing account $BILLING_ACCOUNT_ID. Please check permissions.${NC}"
         exit 1
     fi
     
@@ -140,24 +139,15 @@ create_new_project() {
     
     # Create the project
     echo "  Creating GCP project..."
-    # Use shorter display names to comply with 30-character limit
-    local DISPLAY_NAME=""
-    case "$ENVIRONMENT" in
-        "Development") DISPLAY_NAME="AcademyAxis-237 Dev" ;;
-        "UAT") DISPLAY_NAME="AcademyAxis-237 UAT" ;;
-        "Production") DISPLAY_NAME="AcademyAxis-237 Prod" ;;
-        *) DISPLAY_NAME="AcademyAxis-237 ${ENVIRONMENT:0:8}" ;;
-    esac
-    
     gcloud projects create $PROJECT_ID \
         --organization=$ORGANIZATION_ID \
-        --name="$DISPLAY_NAME" \
+        --name="AcademyAxis-237 $ENVIRONMENT Environment" \
         --labels=application=academyaxis-237,environment=${ENVIRONMENT,,},organization=academyaxis
     
-    # Link billing account - use AcademyAxis-237 specific billing account
-    echo "  Linking AcademyAxis-237 billing account..."
+    # Link billing account
+    echo "  Linking billing account..."
     gcloud billing projects link $PROJECT_ID \
-        --billing-account=$ACADEMYAXIS_237_BILLING_ID
+        --billing-account=$BILLING_ACCOUNT_ID
     
     # Get project number and store it
     local PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
@@ -469,7 +459,7 @@ variable "environment" {
 variable "billing_account_id" {
   description = "Billing account ID"
   type        = string
-  default     = "0156AD-1517D4-139949"  # AcademyAxis-237 billing account
+  default     = "0141E4-398D5E-91A063"
 }
 
 variable "budget_amount" {
@@ -546,7 +536,7 @@ EOF
 project_id         = "$PROJECT_ID"
 region             = "us-central1"
 environment        = "$ENVIRONMENT"
-billing_account_id = "0156AD-1517D4-139949"  # AcademyAxis-237 billing account
+billing_account_id = "0141E4-398D5E-91A063"
 budget_amount      = $BUDGET
 alert_email_address = "admin@giortech.com"
 create_identity_pool   = false
