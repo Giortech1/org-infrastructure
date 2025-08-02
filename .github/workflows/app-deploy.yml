@@ -1,4 +1,4 @@
-# .github/workflows/app-deploy.yml - FIXED VERSION
+# .github/workflows/app-deploy.yml - UPDATED VERSION with academyaxis237
 name: Deploy Application
 
 on:
@@ -81,6 +81,12 @@ jobs:
             echo "should_deploy=true" >> $GITHUB_OUTPUT
             echo "application=waspwallet" >> $GITHUB_OUTPUT
             echo "📱 WaspWallet application repository detected"
+          elif [[ "$REPO_PART" == *"academyaxis"* && "$REPO_PART" == *"237"* ]]; then
+            # ✅ NEW: Handle academyaxis-237 repositories
+            echo "repository_type=application" >> $GITHUB_OUTPUT
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+            echo "application=academyaxis237" >> $GITHUB_OUTPUT
+            echo "🎓 AcademyAxis-237 application repository detected"
           elif [[ "$REPO_PART" == *"academyaxis"* ]]; then
             echo "repository_type=application" >> $GITHUB_OUTPUT
             echo "should_deploy=true" >> $GITHUB_OUTPUT
@@ -151,6 +157,22 @@ jobs:
                 echo "project_number=552816176477" >> $GITHUB_OUTPUT
                 echo "service_name=academyaxis-prod" >> $GITHUB_OUTPUT
                 ;;
+              # ✅ NEW: Added academyaxis237 configurations
+              "academyaxis237-dev")
+                echo "project_id=academyaxis-237-dev-project" >> $GITHUB_OUTPUT
+                echo "project_number=425169602074" >> $GITHUB_OUTPUT
+                echo "service_name=academyaxis237-dev" >> $GITHUB_OUTPUT
+                ;;
+              "academyaxis237-uat")
+                echo "project_id=academyaxis-237-uat-project" >> $GITHUB_OUTPUT
+                echo "project_number=523018028271" >> $GITHUB_OUTPUT
+                echo "service_name=academyaxis237-uat" >> $GITHUB_OUTPUT
+                ;;
+              "academyaxis237-prod")
+                echo "project_id=academyaxis-237-prod-project" >> $GITHUB_OUTPUT
+                echo "project_number=684266177356" >> $GITHUB_OUTPUT
+                echo "service_name=academyaxis237-prod" >> $GITHUB_OUTPUT
+                ;;
               *)
                 echo "::error::Unknown application-environment combination: $APP-$ENV"
                 exit 1
@@ -183,9 +205,10 @@ jobs:
           echo "It contains Terraform configurations, setup scripts, and deployment workflows."
           echo ""
           echo "For application deployments, use the respective application repositories:"
-          echo "  📱 giortech-app     → Giortech website"
-          echo "  📱 waspwallet-app   → WaspWallet mobile app"
-          echo "  📱 academyaxis-app  → AcademyAxis platform"
+          echo "  📱 giortech-app       → Giortech website"
+          echo "  📱 waspwallet-app     → WaspWallet mobile app"
+          echo "  📱 academyaxis-app    → AcademyAxis platform"
+          echo "  📱 academyaxis-237-app → AcademyAxis-237 platform"
           echo ""
           echo "Environment: ${{ needs.determine-context.outputs.environment }}"
           echo "Application: ${{ needs.determine-context.outputs.application }}"
@@ -265,6 +288,35 @@ jobs:
         run: |
           gcloud auth configure-docker us-central1-docker.pkg.dev
       
+      - name: Create Artifact Registry repository if needed
+        run: |
+          PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
+          APP="${{ needs.determine-context.outputs.application }}"
+          ENV="${{ needs.determine-context.outputs.environment }}"
+          
+          # Determine repository name based on application
+          if [[ "$APP" == "academyaxis237" ]]; then
+            REPO_NAME="academyaxis-237-$ENV"
+          else
+            REPO_NAME="$APP-$ENV"
+          fi
+          
+          echo "🏗️ Checking Artifact Registry repository: $REPO_NAME"
+          
+          if ! gcloud artifacts repositories describe $REPO_NAME \
+            --location=us-central1 \
+            --project=$PROJECT_ID &>/dev/null; then
+            
+            echo "📦 Creating Artifact Registry repository: $REPO_NAME"
+            gcloud artifacts repositories create $REPO_NAME \
+              --repository-format=docker \
+              --location=us-central1 \
+              --description="Docker repository for $APP $ENV environment" \
+              --project=$PROJECT_ID
+          else
+            echo "✅ Artifact Registry repository already exists: $REPO_NAME"
+          fi
+      
       - name: Build and Push Docker Image
         run: |
           PROJECT_ID="${{ needs.determine-context.outputs.project_id }}"
@@ -272,14 +324,23 @@ jobs:
           APP="${{ needs.determine-context.outputs.application }}"
           ENV="${{ needs.determine-context.outputs.environment }}"
           
-          # Build image with proper tagging
-          IMAGE_TAG="us-central1-docker.pkg.dev/$PROJECT_ID/$APP-$ENV/app:${{ github.sha }}"
+          # Determine repository name and image tag based on application
+          if [[ "$APP" == "academyaxis237" ]]; then
+            REPO_NAME="academyaxis-237-$ENV"
+            IMAGE_TAG="us-central1-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/app:${{ github.sha }}"
+          else
+            REPO_NAME="$APP-$ENV"
+            IMAGE_TAG="us-central1-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/app:${{ github.sha }}"
+          fi
           
           echo "🏗️ Building Docker image: $IMAGE_TAG"
           docker build -t "$IMAGE_TAG" .
           
           echo "📤 Pushing Docker image..."
           docker push "$IMAGE_TAG"
+          
+          # Store image tag for later use
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
       
       - name: Deploy to Cloud Run with Firebase Support
         run: |
@@ -287,7 +348,7 @@ jobs:
           SERVICE_NAME="${{ needs.determine-context.outputs.service_name }}"
           APP="${{ needs.determine-context.outputs.application }}"
           ENV="${{ needs.determine-context.outputs.environment }}"
-          IMAGE_TAG="us-central1-docker.pkg.dev/$PROJECT_ID/$APP-$ENV/app:${{ github.sha }}"
+          IMAGE_TAG="$IMAGE_TAG"
           
           echo "🚀 Deploying to Cloud Run..."
           gcloud run deploy $SERVICE_NAME \
@@ -296,7 +357,7 @@ jobs:
             --region=${{ needs.determine-context.outputs.region }} \
             --platform=managed \
             --allow-unauthenticated \
-            --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT_ID,NODE_ENV=$ENV,ENVIRONMENT=$ENV" \
+            --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT_ID,NODE_ENV=$ENV,ENVIRONMENT=$ENV,APPLICATION=$APP" \
             --memory=${{ needs.determine-context.outputs.memory }} \
             --cpu=${{ needs.determine-context.outputs.cpu }} \
             --min-instances=${{ needs.determine-context.outputs.min_instances }} \
@@ -306,7 +367,7 @@ jobs:
       
       - name: Test Firebase Connection Post-Deploy
         run: |
-          echo "🧪 Testing deployed service with Firebase..."
+          echo "🧪 Testing deployed service..."
           
           # Get service URL
           SERVICE_URL=$(gcloud run services describe ${{ needs.determine-context.outputs.service_name }} \
@@ -340,5 +401,5 @@ jobs:
           echo "  Project: ${{ needs.determine-context.outputs.project_id }}"
           echo "  Service: ${{ needs.determine-context.outputs.service_name }}"
           echo "  Region: ${{ needs.determine-context.outputs.region }}"
-          echo "  Image: us-central1-docker.pkg.dev/${{ needs.determine-context.outputs.project_id }}/${{ needs.determine-context.outputs.application }}-${{ needs.determine-context.outputs.environment }}/app:${{ github.sha }}"
+          echo "  Image: $IMAGE_TAG"
           echo "  Firebase Enabled: ✅"
