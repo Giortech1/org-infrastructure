@@ -165,7 +165,18 @@ jobs:
             echo "wi_provider=projects/653675374627/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
             echo "sa_email=github-actions-sa@giortech-dev-project.iam.gserviceaccount.com" >> $GITHUB_OUTPUT
           fi
-          
+
+          "academyaxis-237-dev-project")
+              echo "wi_provider=projects/425169602074/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+              ;;
+            "academyaxis-237-uat-project")
+              echo "wi_provider=projects/523018028271/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+              ;;
+            "academyaxis-237-prod-project")
+              echo "wi_provider=projects/684266177356/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_OUTPUT
+              ;;
+
+      
           # Debug output
           echo "Target project: $TARGET_PROJECT"
           WI_PROVIDER=$(cat $GITHUB_OUTPUT | grep wi_provider | cut -d'=' -f2 || echo 'Not set')
