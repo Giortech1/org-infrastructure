@@ -85,3 +85,32 @@ academyaxis:
     max_instances: 5
     memory: "1Gi"
     cpu: 2
+# AcademyAxis-237 Application Configuration
+academyaxis237:
+  dev:
+    project_id: "academyaxis-237-dev-project"
+    project_number: "425169602074"
+    region: "us-central1"
+    service_name: "academyaxis237-dev"
+    min_instances: 0
+    max_instances: 5
+    memory: "512Mi"
+    cpu: 1
+  uat:
+    project_id: "academyaxis-237-uat-project"
+    project_number: "523018028271"
+    region: "us-central1"
+    service_name: "academyaxis237-uat"
+    min_instances: 0
+    max_instances: 10
+    memory: "512Mi"
+    cpu: 1
+  prod:
+    project_id: "academyaxis-237-prod-project"
+    project_number: "684266177356"
+    region: "us-central1"
+    service_name: "academyaxis237-prod"
+    min_instances: 1
+    max_instances: 5
+    memory: "1Gi"
+    cpu: 2
