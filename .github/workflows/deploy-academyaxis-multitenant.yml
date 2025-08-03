@@ -212,7 +212,7 @@ jobs:
           echo "📁 Application files:"
           ls -la
       
-      - name: Validate or Create Dockerfile
+      - name: Validate Dockerfile
         run: |
           DOCKERFILE="${{ needs.determine-deployment-context.outputs.dockerfile }}"
           
@@ -223,114 +223,18 @@ jobs:
             echo "📋 Available files:"
             ls -la
             
-            if [[ "$DOCKERFILE" == "Dockerfile.multi-tenant" ]]; then
-              echo "💡 Creating multi-tenant Dockerfile..."
-              cat > Dockerfile.multi-tenant << 'EOF'
-# Multi-tenant Dockerfile for AcademyAxis Platform
-FROM node:18-alpine
-
-# Build arguments for multi-tenancy
-ARG REGION=africa
-ARG ENVIRONMENT=prod
-ARG GCP_PROJECT
-ARG GCP_REGION=us-central1
-ARG BUILD_DATE
-ARG GIT_COMMIT
-ARG GIT_BRANCH
-
-# Set build-time labels
-LABEL org.opencontainers.image.title="AcademyAxis Multi-Tenant Platform"
-LABEL org.opencontainers.image.description="Global education platform serving schools worldwide with multi-tenant architecture"
-LABEL org.opencontainers.image.vendor="AcademyAxis.io"
-LABEL org.opencontainers.image.created="${BUILD_DATE}"
-LABEL academyaxis.region="${REGION}"
-LABEL academyaxis.environment="${ENVIRONMENT}"
-
-WORKDIR /app
-
-# Copy package files first for better Docker layer caching
-COPY package*.json ./
-RUN npm install --no-audit --no-fund --legacy-peer-deps
-
-# Copy application files
-COPY . .
-
-# Set build-time environment variables for React build
-ENV REACT_APP_REGION=${REGION}
-ENV REACT_APP_ENVIRONMENT=${ENVIRONMENT}
-ENV REACT_APP_GCP_PROJECT=${GCP_PROJECT}
-ENV REACT_APP_GCP_REGION=${GCP_REGION}
-ENV REACT_APP_SUPPORTED_LANGUAGES=fr-CM,en-CM
-ENV REACT_APP_DEFAULT_LANGUAGE=fr-CM
-ENV REACT_APP_DEFAULT_CURRENCY=XAF
-ENV REACT_APP_DEFAULT_TIMEZONE=Africa/Douala
-
-# Build the React app for production
-RUN npm run build
-
-# Install serve package globally to serve the build directory
-RUN npm install -g serve
-
-# Create a non-root user to run the application
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S academyaxis -u 1001
-
-# Change ownership of app directory
-RUN chown -R academyaxis:nodejs /app
-
-# Switch to non-root user for security
-USER academyaxis
-
-# Expose the port the app runs on
-EXPOSE 8080
-
-# Set runtime environment variables
-ENV NODE_ENV=production
-ENV PORT=8080
-ENV MULTI_TENANT=true
-
-# Multi-tenant feature flags
-ENV FEATURE_CROSS_SCHOOL_PARENTS=true
-ENV FEATURE_SCHOOL_ISOLATION=true
-ENV FEATURE_REGIONAL_COMPLIANCE=true
-ENV FEATURE_BILINGUAL_SUPPORT=true
-
-# Regional payment and communication providers
-ENV PAYMENT_PROVIDERS_AFRICA=orange_money,mtn_momo,express_union
-ENV SMS_PROVIDER_AFRICA=africa_talking
-ENV EMAIL_PROVIDER=sendgrid
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
-
-# Define the command to serve the built React app
-CMD ["serve", "-s", "build", "-l", "8080"]
-EOF
+            # Check for alternative Dockerfiles
+            if [[ -f "Dockerfile" ]]; then
+              echo "✅ Found standard Dockerfile, will use that instead"
+              echo "dockerfile=Dockerfile" >> $GITHUB_OUTPUT
             else
-              echo "💡 Creating standard Dockerfile..."
-              cat > Dockerfile << 'EOF'
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm install --no-audit --no-fund
-COPY . .
-RUN npm run build
-RUN npm install -g serve
-RUN addgroup -g 1001 -S nodejs && adduser -S academyaxis -u 1001
-RUN chown -R academyaxis:nodejs /app
-USER academyaxis
-EXPOSE 8080
-ENV NODE_ENV=production
-ENV PORT=8080
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
-CMD ["serve", "-s", "build", "-l", "8080"]
-EOF
+              echo "❌ No Dockerfile found in application repository!"
+              echo "💡 Please ensure your application repository has a Dockerfile"
+              exit 1
             fi
+          else
+            echo "✅ Dockerfile found: $DOCKERFILE"
           fi
-          
-          echo "✅ Dockerfile validated: $DOCKERFILE"
       
       - name: Install Google Cloud SDK
         run: |
