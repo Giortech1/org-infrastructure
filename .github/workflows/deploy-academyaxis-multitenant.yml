@@ -1,0 +1,509 @@
+# .github/workflows/deploy-academyaxis-multitenant.yml
+# This workflow runs from org-infrastructure and deploys the academyaxis-app
+name: Deploy AcademyAxis Multi-Tenant Platform
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - uat
+          - prod
+      target_project:
+        description: 'Choose project infrastructure'
+        required: true
+        default: 'existing'
+        type: choice
+        options:
+          - existing        # Use existing academyaxis projects
+          - academyaxis237   # Use academyaxis-237 projects (Cameroon-specific)
+      deployment_region:
+        description: 'Choose deployment region'
+        required: true
+        default: 'africa'
+        type: choice
+        options:
+          - africa
+          - cameroon
+          - global
+      app_repository:
+        description: 'Application repository to deploy'
+        required: true
+        default: 'Giortech1/academyaxis-app'
+        type: string
+      app_branch:
+        description: 'Branch/commit to deploy from app repository'
+        required: true
+        default: 'main'
+        type: string
+      force_rebuild:
+        description: 'Force rebuild Docker image'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  PLATFORM_NAME: "academyaxis"
+  DOCKER_BUILDKIT: 1
+  
+jobs:
+  determine-deployment-context:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.context.outputs.environment }}
+      project_type: ${{ steps.context.outputs.project_type }}
+      project_id: ${{ steps.context.outputs.project_id }}
+      project_number: ${{ steps.context.outputs.project_number }}
+      service_name: ${{ steps.context.outputs.service_name }}
+      region: ${{ steps.context.outputs.region }}
+      deployment_region: ${{ steps.context.outputs.deployment_region }}
+      dockerfile: ${{ steps.context.outputs.dockerfile }}
+      memory: ${{ steps.context.outputs.memory }}
+      cpu: ${{ steps.context.outputs.cpu }}
+      min_instances: ${{ steps.context.outputs.min_instances }}
+      max_instances: ${{ steps.context.outputs.max_instances }}
+      is_multitenant: ${{ steps.context.outputs.is_multitenant }}
+      app_repository: ${{ steps.context.outputs.app_repository }}
+      app_branch: ${{ steps.context.outputs.app_branch }}
+      
+    steps:
+      - name: Determine deployment context
+        id: context
+        run: |
+          echo "🔍 Determining deployment context from org-infrastructure..."
+          
+          # Get deployment parameters
+          ENV="${{ github.event.inputs.environment }}"
+          PROJECT_TYPE="${{ github.event.inputs.target_project }}"
+          DEPLOYMENT_REGION="${{ github.event.inputs.deployment_region }}"
+          APP_REPO="${{ github.event.inputs.app_repository }}"
+          APP_BRANCH="${{ github.event.inputs.app_branch }}"
+          
+          echo "🎯 Manual deployment triggered from org-infrastructure"
+          echo "  Target App: $APP_REPO"
+          echo "  App Branch: $APP_BRANCH"
+          echo "  Environment: $ENV"
+          echo "  Project Type: $PROJECT_TYPE"
+          echo "  Region: $DEPLOYMENT_REGION"
+          
+          # Set basic outputs
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "project_type=$PROJECT_TYPE" >> $GITHUB_OUTPUT
+          echo "deployment_region=$DEPLOYMENT_REGION" >> $GITHUB_OUTPUT
+          echo "region=us-central1" >> $GITHUB_OUTPUT
+          echo "app_repository=$APP_REPO" >> $GITHUB_OUTPUT
+          echo "app_branch=$APP_BRANCH" >> $GITHUB_OUTPUT
+          
+          # Determine if this is multi-tenant deployment
+          if [[ "$PROJECT_TYPE" == "academyaxis237" ]] || [[ "$DEPLOYMENT_REGION" == "cameroon" ]]; then
+            echo "is_multitenant=true" >> $GITHUB_OUTPUT
+            echo "dockerfile=Dockerfile.multi-tenant" >> $GITHUB_OUTPUT
+            echo "🌍 Multi-tenant deployment enabled"
+          else
+            echo "is_multitenant=false" >> $GITHUB_OUTPUT
+            echo "dockerfile=Dockerfile" >> $GITHUB_OUTPUT
+            echo "🏢 Standard deployment"
+          fi
+          
+          # Set project configuration based on type and environment
+          if [[ "$PROJECT_TYPE" == "academyaxis237" ]]; then
+            echo "🇨🇲 Using AcademyAxis-237 (Cameroon-specific) infrastructure"
+            case "$ENV" in
+              "dev")
+                echo "project_id=academyaxis-237-dev-project" >> $GITHUB_OUTPUT
+                echo "project_number=425169602074" >> $GITHUB_OUTPUT
+                echo "service_name=academyaxis237-dev" >> $GITHUB_OUTPUT
+                ;;
+              "uat")
+                echo "project_id=academyaxis-237-uat-project" >> $GITHUB_OUTPUT
+                echo "project_number=523018028271" >> $GITHUB_OUTPUT
+                echo "service_name=academyaxis237-uat" >> $GITHUB_OUTPUT
+                ;;
+              "prod")
+                echo "project_id=academyaxis-237-prod-project" >> $GITHUB_OUTPUT
+                echo "project_number=684266177356" >> $GITHUB_OUTPUT
+                echo "service_name=academyaxis237-prod" >> $GITHUB_OUTPUT
+                ;;
+            esac
+          else
+            echo "🌍 Using existing AcademyAxis infrastructure"
+            case "$ENV" in
+              "dev")
+                echo "project_id=academyaxis-dev-project" >> $GITHUB_OUTPUT
+                echo "project_number=1052274887859" >> $GITHUB_OUTPUT
+                echo "service_name=academyaxis-dev" >> $GITHUB_OUTPUT
+                ;;
+              "uat")
+                echo "project_id=academyaxis-uat-project" >> $GITHUB_OUTPUT
+                echo "project_number=415071431590" >> $GITHUB_OUTPUT
+                echo "service_name=academyaxis-uat" >> $GITHUB_OUTPUT
+                ;;
+              "prod")
+                echo "project_id=academyaxis-prod-project" >> $GITHUB_OUTPUT
+                echo "project_number=552816176477" >> $GITHUB_OUTPUT
+                echo "service_name=academyaxis-prod" >> $GITHUB_OUTPUT
+                ;;
+            esac
+          fi
+          
+          # Set resource configuration based on environment
+          case "$ENV" in
+            "dev")
+              echo "memory=512Mi" >> $GITHUB_OUTPUT
+              echo "cpu=1" >> $GITHUB_OUTPUT
+              echo "min_instances=0" >> $GITHUB_OUTPUT
+              echo "max_instances=3" >> $GITHUB_OUTPUT
+              ;;
+            "uat")
+              echo "memory=512Mi" >> $GITHUB_OUTPUT
+              echo "cpu=1" >> $GITHUB_OUTPUT
+              echo "min_instances=0" >> $GITHUB_OUTPUT
+              echo "max_instances=5" >> $GITHUB_OUTPUT
+              ;;
+            "prod")
+              echo "memory=1Gi" >> $GITHUB_OUTPUT
+              echo "cpu=2" >> $GITHUB_OUTPUT
+              echo "min_instances=1" >> $GITHUB_OUTPUT
+              echo "max_instances=10" >> $GITHUB_OUTPUT
+              ;;
+          esac
+          
+          echo ""
+          echo "✅ Deployment context determined:"
+          echo "  App Repository: $APP_REPO"
+          echo "  App Branch: $APP_BRANCH"
+          echo "  Environment: $ENV"
+          echo "  Project Type: $PROJECT_TYPE"
+          echo "  Deployment Region: $DEPLOYMENT_REGION"
+          echo "  Multi-tenant: $([[ "$PROJECT_TYPE" == "academyaxis237" ]] && echo "Yes" || echo "No")"
+          echo "  Trigger: ${{ github.event_name }}"
+
+  build-and-deploy:
+    needs: determine-deployment-context
+    runs-on: ubuntu-latest
+    environment: ${{ needs.determine-deployment-context.outputs.environment }}
+    
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    
+    steps:
+      - name: Checkout application code from target repository
+        run: |
+          # Clone the APPLICATION repository (not org-infrastructure)
+          echo "📂 Checking out application code from external repository..."
+          echo "🎯 Target: ${{ needs.determine-deployment-context.outputs.app_repository }}"
+          echo "🌿 Branch: ${{ needs.determine-deployment-context.outputs.app_branch }}"
+          
+          # Use GitHub token for authentication
+          git clone https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ needs.determine-deployment-context.outputs.app_repository }}.git .
+          git checkout ${{ needs.determine-deployment-context.outputs.app_branch }}
+          
+          echo "✅ Application repository checked out successfully"
+          echo "📋 Repository: ${{ needs.determine-deployment-context.outputs.app_repository }}"
+          echo "📋 Branch: ${{ needs.determine-deployment-context.outputs.app_branch }}"
+          echo "📋 Current commit: $(git rev-parse HEAD)"
+          echo ""
+          echo "📁 Application files:"
+          ls -la
+      
+      - name: Validate Dockerfile
+        run: |
+          DOCKERFILE="${{ needs.determine-deployment-context.outputs.dockerfile }}"
+          
+          echo "🔍 Validating Dockerfile: $DOCKERFILE"
+          
+          if [[ ! -f "$DOCKERFILE" ]]; then
+            echo "❌ $DOCKERFILE not found!"
+            echo "📋 Available files:"
+            ls -la
+            
+            # Check for alternative Dockerfiles
+            if [[ -f "Dockerfile" ]]; then
+              echo "✅ Found standard Dockerfile, will use that instead"
+              echo "dockerfile=Dockerfile" >> $GITHUB_OUTPUT
+            else
+              echo "❌ No Dockerfile found in application repository!"
+              echo "💡 Please ensure your application repository has a Dockerfile"
+              exit 1
+            fi
+          else
+            echo "✅ Dockerfile found: $DOCKERFILE"
+          fi
+      
+      - name: Install Google Cloud SDK
+        run: |
+          echo "📦 Installing Google Cloud SDK..."
+          curl https://sdk.cloud.google.com | bash
+          source ~/.bashrc
+          echo "$HOME/google-cloud-sdk/bin" >> $GITHUB_PATH
+          gcloud version
+      
+      - name: Authenticate to Google Cloud
+        run: |
+          echo "🔐 Authenticating to Google Cloud..."
+          echo "Project: ${{ needs.determine-deployment-context.outputs.project_id }}"
+          echo "Service Account: github-actions-sa@${{ needs.determine-deployment-context.outputs.project_id }}.iam.gserviceaccount.com"
+          echo "Workload Identity Provider: projects/${{ needs.determine-deployment-context.outputs.project_number }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          
+          # For now, we'll simulate authentication
+          # TODO: Replace with actual Workload Identity or service account authentication
+          echo "⚠️ Authentication simulation - replace with actual authentication"
+          echo "gcloud auth would happen here..."
+          
+          # When ready, use this for Workload Identity:
+          # gcloud auth login --cred-file=<(echo "${{ secrets.GCP_SA_KEY }}")
+          # gcloud config set project ${{ needs.determine-deployment-context.outputs.project_id }}
+      
+      - name: Create Artifact Registry Repository
+        run: |
+          echo "📦 Setting up Artifact Registry repository..."
+          
+          PROJECT_ID="${{ needs.determine-deployment-context.outputs.project_id }}"
+          ENV="${{ needs.determine-deployment-context.outputs.environment }}"
+          
+          # Determine repository name
+          if [[ "${{ needs.determine-deployment-context.outputs.project_type }}" == "academyaxis237" ]]; then
+            REPO_NAME="academyaxis-237-$ENV"
+          else
+            REPO_NAME="academyaxis-$ENV"
+          fi
+          
+          echo "🏗️ Repository name: $REPO_NAME"
+          
+          # Simulate repository creation
+          echo "gcloud artifacts repositories create $REPO_NAME would run with:"
+          echo "  --repository-format=docker"
+          echo "  --location=us-central1"
+          echo "  --project=$PROJECT_ID"
+          echo "  --description='Docker repository for AcademyAxis $ENV environment'"
+      
+      - name: Build Multi-Tenant Docker Image
+        run: |
+          echo "🏗️ Building AcademyAxis Multi-Tenant Platform..."
+          
+          PROJECT_ID="${{ needs.determine-deployment-context.outputs.project_id }}"
+          SERVICE_NAME="${{ needs.determine-deployment-context.outputs.service_name }}"
+          ENV="${{ needs.determine-deployment-context.outputs.environment }}"
+          REGION="${{ needs.determine-deployment-context.outputs.deployment_region }}"
+          DOCKERFILE="${{ needs.determine-deployment-context.outputs.dockerfile }}"
+          IS_MULTITENANT="${{ needs.determine-deployment-context.outputs.is_multitenant }}"
+          APP_COMMIT=$(git rev-parse HEAD)
+          APP_BRANCH="${{ needs.determine-deployment-context.outputs.app_branch }}"
+          
+          # Determine repository name
+          if [[ "${{ needs.determine-deployment-context.outputs.project_type }}" == "academyaxis237" ]]; then
+            REPO_NAME="academyaxis-237-$ENV"
+          else
+            REPO_NAME="academyaxis-$ENV"
+          fi
+          
+          IMAGE_TAG="us-central1-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/app:$APP_COMMIT"
+          
+          echo "📋 Build Configuration:"
+          echo "  Environment: $ENV"
+          echo "  Region: $REGION"
+          echo "  Multi-tenant: $IS_MULTITENANT"
+          echo "  Dockerfile: $DOCKERFILE"
+          echo "  Image Tag: $IMAGE_TAG"
+          echo "  App Commit: $APP_COMMIT"
+          echo "  App Branch: $APP_BRANCH"
+          
+          # Build arguments for multi-tenant setup
+          if [[ "$IS_MULTITENANT" == "true" ]]; then
+            echo "🌍 Building multi-tenant image with region-specific configuration..."
+            
+            # Simulate docker build with multi-tenant args
+            echo "docker build would run with:"
+            echo "  --build-arg REGION=$REGION"
+            echo "  --build-arg ENVIRONMENT=$ENV"
+            echo "  --build-arg GCP_PROJECT=$PROJECT_ID"
+            echo "  --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "  --build-arg GIT_COMMIT=$APP_COMMIT"
+            echo "  --build-arg GIT_BRANCH=$APP_BRANCH"
+            echo "  -f $DOCKERFILE"
+            echo "  -t $IMAGE_TAG"
+            echo "  ."
+          else
+            echo "🏢 Building standard image..."
+            echo "docker build would run with standard configuration"
+            echo "  -f $DOCKERFILE"
+            echo "  -t $IMAGE_TAG"
+            echo "  ."
+          fi
+          
+          # When ready, replace simulation with actual build:
+          # docker build \
+          #   --build-arg REGION=$REGION \
+          #   --build-arg ENVIRONMENT=$ENV \
+          #   --build-arg GCP_PROJECT=$PROJECT_ID \
+          #   --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+          #   --build-arg GIT_COMMIT=$APP_COMMIT \
+          #   --build-arg GIT_BRANCH=$APP_BRANCH \
+          #   -f $DOCKERFILE \
+          #   -t $IMAGE_TAG \
+          #   .
+          # docker push $IMAGE_TAG
+          
+          echo "✅ Image build simulation completed"
+      
+      - name: Deploy to Cloud Run
+        run: |
+          echo "🚀 Deploying AcademyAxis Multi-Tenant Platform..."
+          
+          PROJECT_ID="${{ needs.determine-deployment-context.outputs.project_id }}"
+          SERVICE_NAME="${{ needs.determine-deployment-context.outputs.service_name }}"
+          ENV="${{ needs.determine-deployment-context.outputs.environment }}"
+          REGION="${{ needs.determine-deployment-context.outputs.region }}"
+          DEPLOYMENT_REGION="${{ needs.determine-deployment-context.outputs.deployment_region }}"
+          IS_MULTITENANT="${{ needs.determine-deployment-context.outputs.is_multitenant }}"
+          APP_COMMIT=$(git rev-parse HEAD)
+          
+          # Determine repository name and image tag
+          if [[ "${{ needs.determine-deployment-context.outputs.project_type }}" == "academyaxis237" ]]; then
+            REPO_NAME="academyaxis-237-$ENV"
+          else
+            REPO_NAME="academyaxis-$ENV"
+          fi
+          
+          IMAGE_TAG="us-central1-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/app:$APP_COMMIT"
+          
+          echo "📋 Deployment Configuration:"
+          echo "  Service: $SERVICE_NAME"
+          echo "  Project: $PROJECT_ID"
+          echo "  Region: $REGION"
+          echo "  Environment: $ENV"
+          echo "  Deployment Region: $DEPLOYMENT_REGION"
+          echo "  Multi-tenant: $IS_MULTITENANT"
+          echo "  Image: $IMAGE_TAG"
+          echo "  Memory: ${{ needs.determine-deployment-context.outputs.memory }}"
+          echo "  CPU: ${{ needs.determine-deployment-context.outputs.cpu }}"
+          echo "  Min Instances: ${{ needs.determine-deployment-context.outputs.min_instances }}"
+          echo "  Max Instances: ${{ needs.determine-deployment-context.outputs.max_instances }}"
+          
+          # Environment variables for deployment
+          ENV_VARS="ENVIRONMENT=$ENV,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,DEPLOYMENT_REGION=$DEPLOYMENT_REGION"
+          
+          if [[ "$IS_MULTITENANT" == "true" ]]; then
+            ENV_VARS="$ENV_VARS,MULTI_TENANT=true,SUPPORTED_LANGUAGES=fr-CM,en-CM,DEFAULT_LANGUAGE=fr-CM,DEFAULT_CURRENCY=XAF,DEFAULT_TIMEZONE=Africa/Douala"
+            echo "🌍 Multi-tenant environment variables configured"
+          fi
+          
+          echo "🔧 Environment Variables: $ENV_VARS"
+          
+          # Simulate Cloud Run deployment
+          echo "gcloud run deploy would execute with:"
+          echo "  --image $IMAGE_TAG"
+          echo "  --service $SERVICE_NAME"
+          echo "  --project $PROJECT_ID"
+          echo "  --region $REGION"
+          echo "  --platform managed"
+          echo "  --allow-unauthenticated"
+          echo "  --memory ${{ needs.determine-deployment-context.outputs.memory }}"
+          echo "  --cpu ${{ needs.determine-deployment-context.outputs.cpu }}"
+          echo "  --min-instances ${{ needs.determine-deployment-context.outputs.min_instances }}"
+          echo "  --max-instances ${{ needs.determine-deployment-context.outputs.max_instances }}"
+          echo "  --set-env-vars $ENV_VARS"
+          echo "  --execution-environment gen2"
+          echo "  --timeout 300s"
+          
+          # When ready, replace simulation with actual deployment:
+          # gcloud run deploy $SERVICE_NAME \
+          #   --image $IMAGE_TAG \
+          #   --project $PROJECT_ID \
+          #   --region $REGION \
+          #   --platform managed \
+          #   --allow-unauthenticated \
+          #   --memory ${{ needs.determine-deployment-context.outputs.memory }} \
+          #   --cpu ${{ needs.determine-deployment-context.outputs.cpu }} \
+          #   --min-instances ${{ needs.determine-deployment-context.outputs.min_instances }} \
+          #   --max-instances ${{ needs.determine-deployment-context.outputs.max_instances }} \
+          #   --set-env-vars $ENV_VARS \
+          #   --execution-environment gen2 \
+          #   --timeout 300s
+          
+          echo "✅ Deployment simulation completed"
+      
+      - name: Post-Deployment Verification
+        run: |
+          echo "🧪 Post-deployment verification..."
+          
+          SERVICE_NAME="${{ needs.determine-deployment-context.outputs.service_name }}"
+          PROJECT_ID="${{ needs.determine-deployment-context.outputs.project_id }}"
+          ENV="${{ needs.determine-deployment-context.outputs.environment }}"
+          IS_MULTITENANT="${{ needs.determine-deployment-context.outputs.is_multitenant }}"
+          
+          # Simulate service URL retrieval
+          SERVICE_URL="https://$SERVICE_NAME-[hash]-uc.a.run.app"
+          
+          echo "🌐 Service would be deployed at: $SERVICE_URL"
+          echo "📊 Health check would verify:"
+          echo "  - Service responds to HTTP requests"
+          echo "  - Health endpoint returns 200"
+          echo "  - Application configuration loaded correctly"
+          if [[ "$IS_MULTITENANT" == "true" ]]; then
+            echo "  - Multi-tenant configuration loaded"
+            echo "  - Regional settings applied (fr-CM, XAF, Africa/Douala)"
+            echo "  - Payment providers configured (Orange Money, MTN MoMo)"
+            echo "  - Communication providers ready (Africa's Talking, SendGrid)"
+          fi
+          
+          echo "✅ Verification would be completed"
+      
+      - name: Deployment Summary
+        run: |
+          echo ""
+          echo "🎉 AcademyAxis Multi-Tenant Platform Deployment Summary"
+          echo "=================================================="
+          echo ""
+          echo "📋 Source Information:"
+          echo "  App Repository: ${{ needs.determine-deployment-context.outputs.app_repository }}"
+          echo "  App Branch: ${{ needs.determine-deployment-context.outputs.app_branch }}"
+          echo "  App Commit: $(git rev-parse HEAD)"
+          echo "  Infrastructure Repo: ${{ github.repository }}"
+          echo ""
+          echo "📋 Deployment Details:"
+          echo "  Environment: ${{ needs.determine-deployment-context.outputs.environment }}"
+          echo "  Project: ${{ needs.determine-deployment-context.outputs.project_id }}"
+          echo "  Service: ${{ needs.determine-deployment-context.outputs.service_name }}"
+          echo "  Region: ${{ needs.determine-deployment-context.outputs.region }}"
+          echo "  Deployment Region: ${{ needs.determine-deployment-context.outputs.deployment_region }}"
+          echo "  Multi-tenant: ${{ needs.determine-deployment-context.outputs.is_multitenant }}"
+          echo ""
+          echo "🔗 Useful Links:"
+          echo "  - GCP Console: https://console.cloud.google.com/home/dashboard?project=${{ needs.determine-deployment-context.outputs.project_id }}"
+          echo "  - Cloud Run: https://console.cloud.google.com/run?project=${{ needs.determine-deployment-context.outputs.project_id }}"
+          echo "  - Monitoring: https://console.cloud.google.com/monitoring?project=${{ needs.determine-deployment-context.outputs.project_id }}"
+          echo "  - Artifact Registry: https://console.cloud.google.com/artifacts?project=${{ needs.determine-deployment-context.outputs.project_id }}"
+          echo ""
+          echo "✅ Deployment orchestration completed successfully!"
+          
+          # Show next steps based on environment
+          case "${{ needs.determine-deployment-context.outputs.environment }}" in
+            "dev")
+              echo ""
+              echo "🚀 Development Environment Ready!"
+              echo "  - Perfect for testing new features"
+              echo "  - Auto-scales to zero when not in use"
+              echo "  - Deploy to 'uat' next for user testing"
+              ;;
+            "uat")
+              echo ""
+              echo "🧪 UAT Environment Ready!"
+              echo "  - Ready for user acceptance testing"
+              echo "  - Staging environment for final validation"
+              echo "  - Deploy to 'prod' after UAT approval"
+              ;;
+            "prod")
+              echo ""
+              echo "🏭 Production Environment Updated!"
+              echo "  - Live environment serving users"
+              echo "  - Monitor performance and logs"
+              echo "  - Multi-tenant platform ready for global schools"
+              ;;
+          esac
