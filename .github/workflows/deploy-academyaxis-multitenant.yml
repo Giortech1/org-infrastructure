@@ -195,7 +195,7 @@ jobs:
     steps:
       - name: Checkout application code from target repository
         run: |
-          # Clone the APPLICATION repository (not org-infrastructure)
+          # Clone the APPLICATION repository using PATH_TOKEN
           echo "📂 Checking out application code from external repository..."
           echo "🎯 Target: ${{ needs.determine-deployment-context.outputs.app_repository }}"
           echo "🌿 Branch: ${{ needs.determine-deployment-context.outputs.app_branch }}"
