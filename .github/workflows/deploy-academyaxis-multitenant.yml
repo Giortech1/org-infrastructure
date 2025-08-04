@@ -194,21 +194,19 @@ jobs:
     
     steps:
       - name: Checkout application code from target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.determine-deployment-context.outputs.app_repository }}
+          ref: ${{ needs.determine-deployment-context.outputs.app_branch }}
+          token: ${{ secrets.PAT_TOKEN }}
+      
+      - name: Verify checkout and display info
         run: |
-          # Clone the APPLICATION repository using PATH_TOKEN
-          echo "📂 Checking out application code from external repository..."
-          echo "🎯 Target: ${{ needs.determine-deployment-context.outputs.app_repository }}"
-          echo "🌿 Branch: ${{ needs.determine-deployment-context.outputs.app_branch }}"
-          
-          # Use PATH_TOKEN for authentication
-          echo "🔐 Using PATH_TOKEN for authentication..."
-          git clone https://${{ secrets.PAT_TOKEN }}@github.com/${{ needs.determine-deployment-context.outputs.app_repository }}.git .
-          git checkout ${{ needs.determine-deployment-context.outputs.app_branch }}
-          
           echo "✅ Application repository checked out successfully"
           echo "📋 Repository: ${{ needs.determine-deployment-context.outputs.app_repository }}"
           echo "📋 Branch: ${{ needs.determine-deployment-context.outputs.app_branch }}"
           echo "📋 Current commit: $(git rev-parse HEAD)"
+          echo "📋 Commit message: $(git log -1 --pretty=format:'%s')"
           echo ""
           echo "📁 Application files:"
           ls -la
