@@ -202,7 +202,7 @@ jobs:
           
           # Use PATH_TOKEN for authentication
           echo "🔐 Using PATH_TOKEN for authentication..."
-          git clone https://${{ secrets.PATH_TOKEN }}@github.com/${{ needs.determine-deployment-context.outputs.app_repository }}.git .
+          git clone https://${{ secrets.PAT_TOKEN }}@github.com/${{ needs.determine-deployment-context.outputs.app_repository }}.git .
           git checkout ${{ needs.determine-deployment-context.outputs.app_branch }}
           
           echo "✅ Application repository checked out successfully"
