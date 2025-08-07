@@ -9,7 +9,7 @@ module "academyaxis_uat_cost_controls" {
   billing_account_id  = "01CCAF-9AB761-C3B593" # AcademyAxis billing account
   budget_amount       = 25                     # $25 monthly budget for UAT environment
   alert_email_address = "devops@academyaxis.io"
-  create_budget       = true # Enable budget creation
+  create_budget       = false # Enable budget creation
 }
 
 # Output the dashboard URLs for easy access
