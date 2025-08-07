@@ -25,7 +25,7 @@ provider "google" {
   region  = var.region
 }
 
-# Enable required APIs first (your existing APIs + educational APIs)
+# Enable required APIs first
 resource "google_project_service" "required_apis" {
   for_each = toset([
     "run.googleapis.com",
@@ -38,10 +38,7 @@ resource "google_project_service" "required_apis" {
     "monitoring.googleapis.com",
     "logging.googleapis.com",
     "billingbudgets.googleapis.com",
-    "certificatemanager.googleapis.com",
-    # Educational platform APIs
-    "firestore.googleapis.com",
-    "artifactregistry.googleapis.com"
+    "certificatemanager.googleapis.com"
   ])
 
   project            = var.project_id
@@ -49,12 +46,12 @@ resource "google_project_service" "required_apis" {
   disable_on_destroy = false
 }
 
-# Random suffix for bucket name to avoid conflicts (your existing resource)
+# Random suffix for bucket name to avoid conflicts
 resource "random_id" "bucket_suffix" {
   byte_length = 4
 }
 
-# Storage bucket for basic infrastructure with unique name (your existing resource)
+# Storage bucket for basic infrastructure with unique name
 resource "google_storage_bucket" "storage" {
   name                        = "${var.project_id}-bucket-${random_id.bucket_suffix.hex}"
   location                    = var.region
@@ -64,21 +61,13 @@ resource "google_storage_bucket" "storage" {
   depends_on = [google_project_service.required_apis]
 }
 
-# Educational platform module (simplified - no Firestore creation)
-module "educational_platform" {
-  source = "../../../modules/educational_platform"
-  
-  project_id              = var.project_id
-  region                  = var.region
-  environment             = "dev"
-  educational_region      = "global"
-  
-  # Educational configuration
-  supported_languages     = ["en-US"]
-  grading_system         = "flexible"
-  payment_providers      = ["stripe"]
-  sms_provider           = "twilio"
-  school_onboarding_key  = "default-key"
-  
-  depends_on = [google_project_service.required_apis]
+# Outputs
+output "project_id" {
+  value       = var.project_id
+  description = "The GCP project ID"
+}
+
+output "bucket_name" {
+  value       = google_storage_bucket.storage.name
+  description = "Storage bucket name"
 }

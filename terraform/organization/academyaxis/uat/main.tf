@@ -4,10 +4,6 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 4.0"
     }
-    local = {
-      source  = "hashicorp/local"
-      version = "~> 2.0"
-    }
   }
   backend "gcs" {
     bucket = "academyaxis-terraform-state"
@@ -16,48 +12,58 @@ terraform {
 }
 
 provider "google" {
-  project = "academyaxis-uat-project"
-  region  = "us-central1"
+  project = var.project_id
+  region  = var.region
 }
 
-# Enable required APIs first
-resource "google_project_service" "required_apis" {
-  for_each = toset([
-    "run.googleapis.com",
-    "cloudbuild.googleapis.com",
-    "compute.googleapis.com",
-    "storage.googleapis.com",
-    "iam.googleapis.com",
-    "secretmanager.googleapis.com",
-    "dns.googleapis.com",
-    "monitoring.googleapis.com",
-    "logging.googleapis.com",
-    "billingbudgets.googleapis.com",
-    "certificatemanager.googleapis.com"
-  ])
-
-  project            = "academyaxis-uat-project"
-  service            = each.value
-  disable_on_destroy = false
+# Network Infrastructure Module
+module "network_infrastructure" {
+  source = "../../../modules/network_infrastructure"
+  
+  project_id            = var.project_id
+  region                = var.region
+  environment           = "uat"
+  application           = "academyaxis"
+  domain                = "academyaxis.io"
+  enable_cdn            = false
+  enable_cloud_armor    = false
+  cloud_run_service_name = "academyaxis-uat"
+  enable_monitoring      = true
+  skip_neg               = true
+  
+  alert_email_address    = "alerts@giortech.com"
+  create_budget_alert    = false  # DISABLED FOR UAT
+  budget_amount          = 15
+  billing_account_id     = ""     # EMPTY FOR UAT
 }
 
-# Storage bucket for basic infrastructure
-resource "google_storage_bucket" "storage" {
-  name                        = "academyaxis-uat-project-bucket"
-  location                    = "us-central1"
-  force_destroy               = true
-  uniform_bucket_level_access = true
-
-  depends_on = [google_project_service.required_apis]
-}
-
-# Outputs
-output "project_id" {
-  value       = "academyaxis-uat-project"
-  description = "The GCP project ID"
-}
-
-output "bucket_name" {
-  value       = google_storage_bucket.storage.name
-  description = "Storage bucket name"
+# Educational Platform Module
+module "educational_platform" {
+  source = "../../../modules/educational_platform"
+  
+  project_id              = var.project_id
+  region                  = var.region
+  environment             = "uat"
+  educational_region      = "global"
+  
+  # Educational configuration
+  supported_languages     = ["en-US", "fr-FR"]
+  grading_system         = "flexible"
+  payment_providers      = ["stripe"]
+  sms_provider           = "twilio"
+  
+  # Multi-tenant configuration
+  enable_school_isolation      = true
+  enable_cross_school_parents  = true
+  max_schools_per_district     = 50
+  
+  # Budget controls - DISABLED FOR UAT
+  create_budget          = false
+  budget_amount          = 30
+  billing_account_id     = ""
+  notification_channels  = []
+  
+  school_onboarding_key  = "uat-educational-key-2024"
+  
+  depends_on = [module.network_infrastructure]
 }

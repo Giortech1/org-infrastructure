@@ -1,0 +1,10 @@
+project_id             = "academyaxis-prod-project"
+region                 = "us-central1"
+environment            = "prod"
+billing_account_id     = "01CCAF-9AB761-C3B593"
+budget_amount          = 100 # $100 monthly budget for prod (when activated)
+create_identity_pool   = false
+create_service_account = false
+deploy_cloud_run       = false
+create_budget          = false # Enable when ready for production deployment
+container_image        = "gcr.io/google-samples/hello-app:1.0"
